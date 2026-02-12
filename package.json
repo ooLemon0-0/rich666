@@ -1,0 +1,23 @@
+{
+  "name": "rich-online-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @rich/web",
+    "dev:server": "npm run dev -w @rich/server",
+    "build": "npm run build -w @rich/shared && npm run build -w @rich/server && npm run build -w @rich/web",
+    "lint": "npm run lint -w @rich/server && npm run lint -w @rich/web && npm run lint -w @rich/shared"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.43.0",
+    "@typescript-eslint/parser": "^8.43.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-vue": "^10.4.0",
+    "typescript": "^5.9.2",
+    "vue-eslint-parser": "^10.2.0"
+  }
+}
