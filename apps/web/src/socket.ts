@@ -25,7 +25,16 @@ function normalizeServerUrl(raw: string): string {
   return value;
 }
 
-const SERVER_URL = normalizeServerUrl(import.meta.env.VITE_SERVER_URL ?? "http://localhost:3000");
+function resolveSocketBaseUrl(): string {
+  const explicitUrl = import.meta.env.VITE_SOCKET_URL?.trim();
+  if (explicitUrl) {
+    return normalizeServerUrl(explicitUrl);
+  }
+  // Default to same-origin in production/deployment behind nginx reverse proxy.
+  return window.location.origin;
+}
+
+const SERVER_URL = resolveSocketBaseUrl();
 const SOCKET_PATH = "/socket.io";
 const SESSION_STORAGE_KEY = "rich:session";
 
@@ -142,11 +151,13 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
 
   socket.on("connect_error", (error) => {
     const connectError = error as SocketConnectError;
-    // Useful for diagnosing CORS, URL, and upgrade failures in browser devtools.
-    console.error("[socket] connect_error", {
+    console.error("[socket] connect_error: socket connection failed", {
+      url: SERVER_URL,
+      path: SOCKET_PATH,
       message: connectError.message,
       description: connectError.description,
-      context: connectError.context
+      context: connectError.context,
+      suggestion: "检查 nginx /socket.io 反代、后端进程与安全组端口"
     });
     emitSocketError({ code: "ROOM_NOT_FOUND", message: `连接失败: ${connectError.message}` });
   });
