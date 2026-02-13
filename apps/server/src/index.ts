@@ -11,6 +11,7 @@ import {
   type InterServerEvents,
   type JoinRoomPayload,
   type JoinOrCreateRoomResult,
+  type RoomActionResult,
   type ReconnectRequestPayload,
   type ReconnectRequestResult,
   type RollRequestPayload,
@@ -28,11 +29,15 @@ import {
   joinRoom,
   reconnectPlayer,
   rollRequest,
-  skipBuy
+  selectCharacter,
+  skipBuy,
+  startGame,
+  toggleReady
 } from "./game/roomManager.js";
 
 const app = Fastify({ logger: true });
-const WEB_ORIGIN = "http://localhost:5173";
+const configuredWebOrigin = process.env.WEB_ORIGIN?.trim();
+const WEB_ORIGIN = configuredWebOrigin && configuredWebOrigin !== "*" ? configuredWebOrigin : true;
 const SOCKET_PATH = "/socket.io";
 await app.register(cors, {
   origin: WEB_ORIGIN,
@@ -75,6 +80,14 @@ function roomNotFound(): ErrorPayload {
     ok: false,
     code: "ROOM_NOT_FOUND",
     message: "房间不存在"
+  };
+}
+
+function roomEnded(): ErrorPayload {
+  return {
+    ok: false,
+    code: "ROOM_ENDED",
+    message: "房间已结束"
   };
 }
 
@@ -142,8 +155,25 @@ function playerNotFound(): ErrorPayload {
   };
 }
 
+function invalidAction(message = "当前状态下不能执行该操作"): ErrorPayload {
+  return {
+    ok: false,
+    code: "ERR_INVALID_ACTION",
+    message
+  };
+}
+
+function characterTaken(): ErrorPayload {
+  return {
+    ok: false,
+    code: "CHAR_TAKEN",
+    message: "该角色已被其他玩家选择"
+  };
+}
+
 function emitRoomState(roomId: string, state: ReturnType<typeof createRoom>): void {
   io.to(roomId).emit("room_state", state);
+  io.to(roomId).emit("room:state", state);
 }
 
 function ackAndEmitError<TErrorResult>(
@@ -212,7 +242,12 @@ io.on("connection", (socket) => {
 
     const joinResult = joinRoom(socket.id, roomId, nickname);
     if (!joinResult.ok || !joinResult.state) {
-      const error = joinResult.code === "ROOM_FULL" ? roomFull() : roomNotFound();
+      let error: ErrorPayload = roomNotFound();
+      if (joinResult.code === "ROOM_FULL") {
+        error = roomFull();
+      } else if (joinResult.code === "ROOM_ENDED") {
+        error = roomEnded();
+      }
       ackAndEmitError(socket.id, ack, error);
       return;
     }
@@ -248,7 +283,9 @@ io.on("connection", (socket) => {
     const reconnectResult = reconnectPlayer(socket.id, roomId, playerId);
     if (!reconnectResult.ok || !reconnectResult.state || !reconnectResult.result) {
       let error: ErrorPayload = roomNotFound();
-      if (reconnectResult.code === "PLAYER_NOT_FOUND") {
+      if (reconnectResult.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (reconnectResult.code === "PLAYER_NOT_FOUND") {
         error = playerNotFound();
       } else if (reconnectResult.code === "ROOM_MISMATCH") {
         error = roomMismatch();
@@ -287,12 +324,16 @@ io.on("connection", (socket) => {
     const roll = rollRequest(socket.id, roomId);
     if (!roll.ok || !roll.state || !roll.result) {
       let error: ErrorPayload = roomNotFound();
-      if (roll.code === "ROOM_MISMATCH") {
+      if (roll.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (roll.code === "ROOM_MISMATCH") {
         error = roomMismatch();
       } else if (roll.code === "NOT_YOUR_TURN") {
         error = notYourTurn();
       } else if (roll.code === "GAME_NOT_READY") {
         error = gameNotReady();
+      } else if (roll.code === "ERR_INVALID_ACTION") {
+        error = invalidAction();
       }
       app.log.warn({ socketId: socket.id, roomId, error }, "roll request rejected");
       ackAndEmitError<RollRequestResult>(socket.id, ack, error);
@@ -300,6 +341,11 @@ io.on("connection", (socket) => {
     }
 
     ack(roll.result);
+    io.to(roomId).emit("game:diceRolled", {
+      roomId,
+      playerId: roll.result.playerId,
+      value: roll.result.dice
+    });
     emitRoomState(roomId, roll.state);
     app.log.info(
       {
@@ -323,7 +369,9 @@ io.on("connection", (socket) => {
     const result = buyRequest(socket.id, roomId);
     if (!result.ok || !result.state || !result.result) {
       let error: ErrorPayload = roomNotFound();
-      if (result.code === "ROOM_MISMATCH") {
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
         error = roomMismatch();
       } else if (result.code === "NOT_YOUR_TURN") {
         error = notYourTurn();
@@ -333,6 +381,8 @@ io.on("connection", (socket) => {
         error = tileNotBuyable();
       } else if (result.code === "INSUFFICIENT_CASH") {
         error = insufficientCash();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction();
       }
       ackAndEmitError(socket.id, ack, error);
       return;
@@ -351,7 +401,9 @@ io.on("connection", (socket) => {
     const result = skipBuy(socket.id, roomId);
     if (!result.ok || !result.state || !result.result) {
       let error: ErrorPayload = roomNotFound();
-      if (result.code === "ROOM_MISMATCH") {
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
         error = roomMismatch();
       } else if (result.code === "NOT_YOUR_TURN") {
         error = notYourTurn();
@@ -361,6 +413,8 @@ io.on("connection", (socket) => {
         error = tileNotBuyable();
       } else if (result.code === "INSUFFICIENT_CASH") {
         error = insufficientCash();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction();
       }
       ackAndEmitError(socket.id, ack, error);
       return;
@@ -368,6 +422,86 @@ io.on("connection", (socket) => {
     ack(result.result);
     emitRoomState(roomId, result.state);
     app.log.info({ socketId: socket.id, roomId, action: "skip_buy" }, "trade applied");
+  });
+
+  socket.on("room_select_character", (payload, ack: (result: RoomActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    const characterId = payload.characterId.trim();
+    if (!roomId || !characterId) {
+      ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 和 characterId 不能为空"));
+      return;
+    }
+    const result = selectCharacter(socket.id, roomId, characterId);
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "CHAR_TAKEN") {
+        error = characterTaken();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("当前不能选择角色");
+      }
+      ackAndEmitError<RoomActionResult>(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
+  });
+
+  socket.on("room_toggle_ready", (payload, ack: (result: RoomActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId) {
+      ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 不能为空"));
+      return;
+    }
+    const result = toggleReady(socket.id, roomId);
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("请先选择角色，再切换准备状态");
+      }
+      ackAndEmitError<RoomActionResult>(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
+  });
+
+  socket.on("room_start_game", (payload, ack: (result: RoomActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId) {
+      ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 不能为空"));
+      return;
+    }
+    const result = startGame(socket.id, roomId);
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "GAME_NOT_READY") {
+        error = gameNotReady();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("需房主操作且所有在线玩家已准备");
+      }
+      ackAndEmitError<RoomActionResult>(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
   });
 
   socket.on("disconnect", (reason) => {

@@ -1,0 +1,133 @@
+{
+  "source_image": "C:\\Users\\10715\\Desktop\\mb\\rich\\py\\sprite_4x4.png",
+  "items": [
+    {
+      "index": 1,
+      "row": 1,
+      "col": 1,
+      "name_zh": "曹操",
+      "name_en": "CaoCao",
+      "file": "01_CaoCao.png"
+    },
+    {
+      "index": 2,
+      "row": 1,
+      "col": 2,
+      "name_zh": "诸葛亮",
+      "name_en": "ZhugeLiang",
+      "file": "02_ZhugeLiang.png"
+    },
+    {
+      "index": 3,
+      "row": 1,
+      "col": 3,
+      "name_zh": "刘备",
+      "name_en": "LiuBei",
+      "file": "03_LiuBei.png"
+    },
+    {
+      "index": 4,
+      "row": 1,
+      "col": 4,
+      "name_zh": "太史慈",
+      "name_en": "TaiShici",
+      "file": "04_TaiShici.png"
+    },
+    {
+      "index": 5,
+      "row": 2,
+      "col": 1,
+      "name_zh": "关羽",
+      "name_en": "GuanYu",
+      "file": "05_GuanYu.png"
+    },
+    {
+      "index": 6,
+      "row": 2,
+      "col": 2,
+      "name_zh": "张飞",
+      "name_en": "ZhangFei",
+      "file": "06_ZhangFei.png"
+    },
+    {
+      "index": 7,
+      "row": 2,
+      "col": 3,
+      "name_zh": "赵云",
+      "name_en": "ZhaoYun",
+      "file": "07_ZhaoYun.png"
+    },
+    {
+      "index": 8,
+      "row": 2,
+      "col": 4,
+      "name_zh": "貂蝉",
+      "name_en": "DiaoChan",
+      "file": "08_DiaoChan.png"
+    },
+    {
+      "index": 9,
+      "row": 3,
+      "col": 1,
+      "name_zh": "吕布",
+      "name_en": "LvBu",
+      "file": "09_LvBu.png"
+    },
+    {
+      "index": 10,
+      "row": 3,
+      "col": 2,
+      "name_zh": "马超",
+      "name_en": "MaChao",
+      "file": "10_MaChao.png"
+    },
+    {
+      "index": 11,
+      "row": 3,
+      "col": 3,
+      "name_zh": "司马懿",
+      "name_en": "SimaYi",
+      "file": "11_SimaYi.png"
+    },
+    {
+      "index": 12,
+      "row": 3,
+      "col": 4,
+      "name_zh": "王朗",
+      "name_en": "WangLang",
+      "file": "12_WangLang.png"
+    },
+    {
+      "index": 13,
+      "row": 4,
+      "col": 1,
+      "name_zh": "陆逊",
+      "name_en": "LuXun",
+      "file": "13_LuXun.png"
+    },
+    {
+      "index": 14,
+      "row": 4,
+      "col": 2,
+      "name_zh": "何进",
+      "name_en": "Hejin",
+      "file": "14_Hejin.png"
+    },
+    {
+      "index": 15,
+      "row": 4,
+      "col": 3,
+      "name_zh": "姜维",
+      "name_en": "JiangWei",
+      "file": "15_JiangWei.png"
+    },
+    {
+      "index": 16,
+      "row": 4,
+      "col": 4,
+      "name_zh": "庞统",
+      "name_en": "PangTong",
+      "file": "16_PangTong.png"
+    }
+  ]
+}

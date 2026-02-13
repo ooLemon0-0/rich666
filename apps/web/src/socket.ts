@@ -2,7 +2,9 @@ import { io, type Socket } from "socket.io-client";
 import type {
   BuyRequestPayload,
   ClientToServerEvents,
+  DiceRolledPayload,
   JoinOrCreateRoomResult,
+  RoomActionResult,
   ReconnectRequestResult,
   RollRequestResult,
   RoomState,
@@ -11,7 +13,6 @@ import type {
   TradeActionResult,
   ServerToClientEvents
 } from "@rich/shared";
-import { GAME_CONFIG } from "./config/game";
 
 function normalizeServerUrl(raw: string): string {
   const value = raw.trim();
@@ -37,12 +38,12 @@ function resolveSocketBaseUrl(): string {
 
 const SERVER_URL = resolveSocketBaseUrl();
 const SOCKET_PATH = "/socket.io";
-const SOCKET_NAMESPACE = GAME_CONFIG.socketNamespace;
 const SESSION_STORAGE_KEY = "rich:session";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 type RoomStateHandler = (state: RoomState) => void;
+type DiceRolledHandler = (payload: DiceRolledPayload) => void;
 type ErrorHandler = (error: SocketErrorPayload) => void;
 type ConnectionHandler = (status: ConnectionStatus) => void;
 type SocketConnectError = Error & { description?: unknown; context?: unknown };
@@ -60,10 +61,14 @@ interface SocketClient {
   rollRequest: (roomId: string) => Promise<RollRequestResult>;
   buyRequest: (roomId: string) => Promise<TradeActionResult>;
   skipBuy: (roomId: string) => Promise<TradeActionResult>;
+  selectCharacter: (roomId: string, characterId: string) => Promise<RoomActionResult>;
+  toggleReady: (roomId: string) => Promise<RoomActionResult>;
+  startGame: (roomId: string) => Promise<RoomActionResult>;
   setSession: (session: SessionSnapshot) => void;
   clearSession: () => void;
   getSession: () => SessionSnapshot | null;
   subscribeRoomState: (handler: RoomStateHandler) => () => void;
+  subscribeDiceRolled: (handler: DiceRolledHandler) => () => void;
   subscribeError: (handler: ErrorHandler) => () => void;
   subscribeConnection: (handler: ConnectionHandler) => () => void;
   getStatus: () => ConnectionStatus;
@@ -74,6 +79,7 @@ let status: ConnectionStatus = "disconnected";
 let reconnectingFromSession = false;
 
 const roomStateListeners = new Set<RoomStateHandler>();
+const diceRolledListeners = new Set<DiceRolledHandler>();
 const errorListeners = new Set<ErrorHandler>();
 const connectionListeners = new Set<ConnectionHandler>();
 
@@ -110,19 +116,12 @@ function emitSocketError(error: SocketErrorPayload): void {
   errorListeners.forEach((handler) => handler(error));
 }
 
-function buildSocketEndpoint(baseUrl: string, namespace: string): string {
-  if (!namespace || namespace === "/") {
-    return baseUrl;
-  }
-  return `${baseUrl}${namespace}`;
-}
-
 function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   if (socketInstance) {
     return socketInstance;
   }
 
-  const socket = io(buildSocketEndpoint(SERVER_URL, SOCKET_NAMESPACE), {
+  const socket = io(SERVER_URL, {
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
@@ -162,7 +161,6 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
     const connectError = error as SocketConnectError;
     console.error("[socket] connect_error: socket connection failed", {
       url: SERVER_URL,
-      namespace: SOCKET_NAMESPACE,
       path: SOCKET_PATH,
       message: connectError.message,
       description: connectError.description,
@@ -180,9 +178,15 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   socket.on("room_state", (state) => {
     roomStateListeners.forEach((handler) => handler(state));
   });
+  socket.on("room:state", (state) => {
+    roomStateListeners.forEach((handler) => handler(state));
+  });
 
   socket.on("error", (error) => {
     emitSocketError(error);
+  });
+  socket.on("game:diceRolled", (payload) => {
+    diceRolledListeners.forEach((handler) => handler(payload));
   });
 
   socketInstance = socket;
@@ -243,6 +247,24 @@ export function createSocketClient(): SocketClient {
         socket.emit("skip_buy", payload, ack);
       });
     },
+    selectCharacter(roomId, characterId) {
+      const socket = getSocket();
+      return withAck<RoomActionResult>((ack) => {
+        socket.emit("room_select_character", { roomId, characterId }, ack);
+      });
+    },
+    toggleReady(roomId) {
+      const socket = getSocket();
+      return withAck<RoomActionResult>((ack) => {
+        socket.emit("room_toggle_ready", { roomId }, ack);
+      });
+    },
+    startGame(roomId) {
+      const socket = getSocket();
+      return withAck<RoomActionResult>((ack) => {
+        socket.emit("room_start_game", { roomId }, ack);
+      });
+    },
     subscribeRoomState(handler) {
       roomStateListeners.add(handler);
       return () => {
@@ -253,6 +275,12 @@ export function createSocketClient(): SocketClient {
       errorListeners.add(handler);
       return () => {
         errorListeners.delete(handler);
+      };
+    },
+    subscribeDiceRolled(handler) {
+      diceRolledListeners.add(handler);
+      return () => {
+        diceRolledListeners.delete(handler);
       };
     },
     setSession(session) {

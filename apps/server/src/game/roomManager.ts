@@ -2,6 +2,7 @@ import {
   BOARD_SIZE,
   type Player,
   type PlayerId,
+  type RoomActionSuccessPayload,
   type ReconnectSuccessPayload,
   type RollSuccessPayload,
   type RoomPhase,
@@ -20,20 +21,32 @@ interface PlayerRef {
   playerId: PlayerId;
 }
 
-export type JoinRoomFailureCode = "ROOM_NOT_FOUND" | "ROOM_FULL";
+export type JoinRoomFailureCode = "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROOM_ENDED";
 export type RollFailureCode =
   | "ROOM_NOT_FOUND"
+  | "ROOM_ENDED"
   | "ROOM_MISMATCH"
   | "NOT_YOUR_TURN"
-  | "GAME_NOT_READY";
+  | "GAME_NOT_READY"
+  | "ERR_INVALID_ACTION";
 export type TradeFailureCode =
   | "ROOM_NOT_FOUND"
+  | "ROOM_ENDED"
   | "ROOM_MISMATCH"
   | "NOT_YOUR_TURN"
   | "NOT_BUY_PHASE"
   | "TILE_NOT_BUYABLE"
-  | "INSUFFICIENT_CASH";
-export type ReconnectFailureCode = "ROOM_NOT_FOUND" | "ROOM_MISMATCH" | "PLAYER_NOT_FOUND";
+  | "INSUFFICIENT_CASH"
+  | "ERR_INVALID_ACTION";
+export type ReconnectFailureCode = "ROOM_NOT_FOUND" | "ROOM_ENDED" | "ROOM_MISMATCH" | "PLAYER_NOT_FOUND";
+export type RoomActionFailureCode =
+  | "ROOM_NOT_FOUND"
+  | "ROOM_ENDED"
+  | "ROOM_MISMATCH"
+  | "PLAYER_NOT_FOUND"
+  | "CHAR_TAKEN"
+  | "ERR_INVALID_ACTION"
+  | "GAME_NOT_READY";
 
 export interface JoinRoomResult {
   ok: boolean;
@@ -62,8 +75,15 @@ export interface ReconnectResult {
   code?: ReconnectFailureCode;
   kickedSocketId?: string;
 }
+export interface RoomActionResult {
+  ok: boolean;
+  state?: RoomState;
+  result?: RoomActionSuccessPayload;
+  code?: RoomActionFailureCode;
+}
 
 const rooms = new Map<RoomId, RoomRecord>();
+const endedRooms = new Set<RoomId>();
 const socketToPlayer = new Map<string, PlayerRef>();
 const playerToSocket = new Map<string, string>();
 const ROOM_SIZE_LIMIT = 6;
@@ -100,7 +120,9 @@ function buildPlayer(playerId: PlayerId, nickname: string): Player {
     position: 0,
     cash: 1500,
     connected: true,
-    joinedAt: Date.now()
+    joinedAt: Date.now(),
+    ready: false,
+    selectedCharacterId: null
   };
 }
 
@@ -114,6 +136,7 @@ function createBoard(): Tile[] {
       return {
         index,
         ownerPlayerId: null,
+        ownerCharacterId: null,
         price: 0,
         rent: 0
       };
@@ -122,6 +145,7 @@ function createBoard(): Tile[] {
     return {
       index,
       ownerPlayerId: null,
+        ownerCharacterId: null,
       price,
       rent: Math.floor(price * 0.1)
     };
@@ -134,6 +158,7 @@ export function createRoom(socketId: string, nickname: string): RoomState {
 
   const state: RoomState = {
     roomId,
+    status: "waiting",
     players: [player],
     hostPlayerId: player.playerId,
     currentTurnPlayerId: player.playerId,
@@ -144,6 +169,7 @@ export function createRoom(socketId: string, nickname: string): RoomState {
   };
 
   rooms.set(roomId, { state });
+  endedRooms.delete(roomId);
   socketToPlayer.set(socketId, { roomId, playerId: player.playerId });
   playerToSocket.set(roomPlayerKey(roomId, player.playerId), socketId);
 
@@ -151,6 +177,9 @@ export function createRoom(socketId: string, nickname: string): RoomState {
 }
 
 export function joinRoom(socketId: string, roomId: RoomId, nickname: string): JoinRoomResult {
+  if (endedRooms.has(roomId)) {
+    return { ok: false, code: "ROOM_ENDED" };
+  }
   const record = rooms.get(roomId);
   if (!record) {
     return { ok: false, code: "ROOM_NOT_FOUND" };
@@ -161,7 +190,7 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string): Jo
 
   const player = buildPlayer(randomPlayerId(), nickname);
   record.state.players.push(player);
-  record.state.phase = computePhase(record.state.players.length);
+  record.state.phase = "waiting";
   if (!record.state.currentTurnPlayerId) {
     record.state.currentTurnPlayerId = record.state.players[0]?.playerId ?? null;
   }
@@ -204,6 +233,14 @@ export function disconnectSocket(socketId: string): RoomState | null {
       record.state.phase = "waiting";
       record.state.pendingBuyTileIndex = null;
     }
+  }
+
+  const connectedCount = record.state.players.filter((item) => item.connected).length;
+  if (connectedCount === 0) {
+    record.state.status = "ended";
+    rooms.delete(playerRef.roomId);
+    endedRooms.add(playerRef.roomId);
+    return null;
   }
   return record.state;
 }
@@ -251,9 +288,15 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   if (playerRef.roomId !== roomId) {
     return { ok: false, code: "ROOM_MISMATCH" };
   }
+  if (endedRooms.has(roomId)) {
+    return { ok: false, code: "ROOM_ENDED" };
+  }
   const record = rooms.get(roomId);
   if (!record) {
     return { ok: false, code: "ROOM_NOT_FOUND" };
+  }
+  if (record.state.status !== "in_game") {
+    return { ok: false, code: "GAME_NOT_READY" };
   }
   if (record.state.phase === "waiting" || record.state.players.length < 2) {
     return { ok: false, code: "GAME_NOT_READY" };
@@ -286,23 +329,18 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
 
   const landedTile = record.state.board[nextPosition];
   if (landedTile.index !== 0) {
-    if (!landedTile.ownerPlayerId) {
-      record.state.phase = "can_buy";
-      record.state.pendingBuyTileIndex = landedTile.index;
-    } else if (landedTile.ownerPlayerId !== player.playerId) {
+    if (landedTile.ownerPlayerId && landedTile.ownerPlayerId !== player.playerId) {
       const owner = getCurrentPlayer(record.state, landedTile.ownerPlayerId);
       if (owner) {
         const payment = Math.min(player.cash, landedTile.rent);
         player.cash -= payment;
         owner.cash += payment;
       }
-      advanceTurn(record.state);
-    } else {
-      advanceTurn(record.state);
     }
-  } else {
-    advanceTurn(record.state);
   }
+  // Server-authoritative turn state machine:
+  // every valid roll resolves and immediately advances to next turn.
+  advanceTurn(record.state);
 
   return {
     ok: true,
@@ -325,9 +363,15 @@ function validateTradeRequest(socketId: string, roomId: RoomId): { state?: RoomS
   if (playerRef.roomId !== roomId) {
     return { code: "ROOM_MISMATCH" };
   }
+  if (endedRooms.has(roomId)) {
+    return { code: "ROOM_ENDED" };
+  }
   const record = rooms.get(roomId);
   if (!record) {
     return { code: "ROOM_NOT_FOUND" };
+  }
+  if (record.state.status !== "in_game") {
+    return { code: "ERR_INVALID_ACTION" };
   }
   if (record.state.currentTurnPlayerId !== playerRef.playerId) {
     return { code: "NOT_YOUR_TURN" };
@@ -365,6 +409,7 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
 
   validation.player.cash -= tile.price;
   tile.ownerPlayerId = validation.player.playerId;
+  tile.ownerCharacterId = validation.player.selectedCharacterId;
   advanceTurn(validation.state);
 
   return {
@@ -404,6 +449,9 @@ export function reconnectPlayer(
   playerId: PlayerId
 ): ReconnectResult {
   const record = rooms.get(roomId);
+  if (endedRooms.has(roomId)) {
+    return { ok: false, code: "ROOM_ENDED" };
+  }
   if (!record) {
     return { ok: false, code: "ROOM_NOT_FOUND" };
   }
@@ -424,7 +472,7 @@ export function reconnectPlayer(
   player.connected = true;
 
   const connectedCount = record.state.players.filter((item) => item.connected).length;
-  if (connectedCount >= 2 && record.state.phase === "waiting") {
+  if (record.state.status === "in_game" && connectedCount >= 2 && record.state.phase === "waiting") {
     record.state.phase = "rolling";
     if (!record.state.currentTurnPlayerId) {
       record.state.currentTurnPlayerId = playerId;
@@ -436,5 +484,123 @@ export function reconnectPlayer(
     state: record.state,
     result: { ok: true, roomId, playerId },
     kickedSocketId: oldSocketId && oldSocketId !== socketId ? oldSocketId : undefined
+  };
+}
+
+function getPlayerRecord(socketId: string, roomId: RoomId): { state?: RoomState; player?: Player; code?: RoomActionFailureCode } {
+  const playerRef = socketToPlayer.get(socketId);
+  if (!playerRef) {
+    return { code: "ROOM_NOT_FOUND" };
+  }
+  if (playerRef.roomId !== roomId) {
+    return { code: "ROOM_MISMATCH" };
+  }
+  if (endedRooms.has(roomId)) {
+    return { code: "ROOM_ENDED" };
+  }
+  const record = rooms.get(roomId);
+  if (!record) {
+    return { code: "ROOM_NOT_FOUND" };
+  }
+  const player = record.state.players.find((item) => item.playerId === playerRef.playerId);
+  if (!player) {
+    return { code: "PLAYER_NOT_FOUND" };
+  }
+  return { state: record.state, player };
+}
+
+export function selectCharacter(
+  socketId: string,
+  roomId: RoomId,
+  characterId: string
+): RoomActionResult {
+  const entry = getPlayerRecord(socketId, roomId);
+  if (!entry.state || !entry.player) {
+    return { ok: false, code: entry.code ?? "ROOM_NOT_FOUND" };
+  }
+  if (entry.state.status !== "waiting") {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  if (!characterId.trim()) {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  const nextCharacterId = characterId.trim();
+  const takenByOther = entry.state.players.some(
+    (item) => item.playerId !== entry.player?.playerId && item.selectedCharacterId === nextCharacterId
+  );
+  if (takenByOther) {
+    return { ok: false, code: "CHAR_TAKEN" };
+  }
+  entry.player.selectedCharacterId = nextCharacterId;
+  entry.player.ready = false;
+  return {
+    ok: true,
+    state: entry.state,
+    result: {
+      ok: true,
+      roomId,
+      playerId: entry.player.playerId,
+      action: "select_character"
+    }
+  };
+}
+
+export function toggleReady(socketId: string, roomId: RoomId): RoomActionResult {
+  const entry = getPlayerRecord(socketId, roomId);
+  if (!entry.state || !entry.player) {
+    return { ok: false, code: entry.code ?? "ROOM_NOT_FOUND" };
+  }
+  if (entry.state.status !== "waiting") {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  if (!entry.player.selectedCharacterId) {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  entry.player.ready = !entry.player.ready;
+  return {
+    ok: true,
+    state: entry.state,
+    result: {
+      ok: true,
+      roomId,
+      playerId: entry.player.playerId,
+      action: "toggle_ready"
+    }
+  };
+}
+
+export function startGame(socketId: string, roomId: RoomId): RoomActionResult {
+  const entry = getPlayerRecord(socketId, roomId);
+  if (!entry.state || !entry.player) {
+    return { ok: false, code: entry.code ?? "ROOM_NOT_FOUND" };
+  }
+  if (entry.state.status !== "waiting") {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  if (entry.state.hostPlayerId !== entry.player.playerId) {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  const connectedPlayers = entry.state.players.filter((item) => item.connected);
+  if (connectedPlayers.length < 2) {
+    return { ok: false, code: "GAME_NOT_READY" };
+  }
+  if (!connectedPlayers.every((item) => item.ready)) {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+  entry.state.status = "in_game";
+  entry.state.phase = computePhase(connectedPlayers.length);
+  if (!entry.state.currentTurnPlayerId) {
+    entry.state.currentTurnPlayerId = connectedPlayers[0].playerId;
+  }
+  entry.state.pendingBuyTileIndex = null;
+  return {
+    ok: true,
+    state: entry.state,
+    result: {
+      ok: true,
+      roomId,
+      playerId: entry.player.playerId,
+      action: "start_game"
+    }
   };
 }

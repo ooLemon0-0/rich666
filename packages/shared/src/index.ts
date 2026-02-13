@@ -1,7 +1,8 @@
 export type RoomId = string;
 export type PlayerId = string;
 export type RoomPhase = "waiting" | "rolling" | "moving" | "can_buy";
-export const BOARD_SIZE = 20;
+export type RoomStatus = "waiting" | "in_game" | "ended";
+export const BOARD_SIZE = 40;
 
 export interface Player {
   playerId: PlayerId;
@@ -10,17 +11,21 @@ export interface Player {
   cash: number;
   connected: boolean;
   joinedAt: number;
+  ready: boolean;
+  selectedCharacterId: string | null;
 }
 
 export interface Tile {
   index: number;
   ownerPlayerId: PlayerId | null;
+  ownerCharacterId: string | null;
   price: number;
   rent: number;
 }
 
 export interface RoomState {
   roomId: RoomId;
+  status: RoomStatus;
   hostPlayerId: PlayerId;
   currentTurnPlayerId: PlayerId | null;
   phase: RoomPhase;
@@ -55,6 +60,16 @@ export interface ReconnectRequestPayload {
   roomId: RoomId;
   playerId: PlayerId;
 }
+export interface SelectCharacterPayload {
+  roomId: RoomId;
+  characterId: string;
+}
+export interface ToggleReadyPayload {
+  roomId: RoomId;
+}
+export interface StartGamePayload {
+  roomId: RoomId;
+}
 
 export interface JoinOrCreateRoomAck {
   ok: true;
@@ -66,6 +81,7 @@ export interface ErrorPayload {
   ok: false;
   code:
     | "ROOM_NOT_FOUND"
+    | "ROOM_ENDED"
     | "INVALID_PAYLOAD"
     | "ROOM_FULL"
     | "ROOM_MISMATCH"
@@ -74,12 +90,19 @@ export interface ErrorPayload {
     | "NOT_BUY_PHASE"
     | "TILE_NOT_BUYABLE"
     | "INSUFFICIENT_CASH"
-    | "PLAYER_NOT_FOUND";
+    | "PLAYER_NOT_FOUND"
+    | "CHAR_TAKEN"
+    | "ERR_INVALID_ACTION";
   message: string;
 }
 export interface SocketErrorPayload {
   code: string;
   message: string;
+}
+export interface DiceRolledPayload {
+  roomId: RoomId;
+  playerId: PlayerId;
+  value: number;
 }
 
 export type JoinOrCreateRoomResult = JoinOrCreateRoomAck | ErrorPayload;
@@ -98,6 +121,13 @@ export interface TradeActionSuccessPayload {
   action: "buy" | "skip_buy";
 }
 export type TradeActionResult = TradeActionSuccessPayload | ErrorPayload;
+export interface RoomActionSuccessPayload {
+  ok: true;
+  roomId: RoomId;
+  playerId: PlayerId;
+  action: "select_character" | "toggle_ready" | "start_game";
+}
+export type RoomActionResult = RoomActionSuccessPayload | ErrorPayload;
 export interface ReconnectSuccessPayload {
   ok: true;
   roomId: RoomId;
@@ -115,10 +145,15 @@ export interface ClientToServerEvents {
     payload: ReconnectRequestPayload,
     ack: (result: ReconnectRequestResult) => void
   ) => void;
+  room_select_character: (payload: SelectCharacterPayload, ack: (result: RoomActionResult) => void) => void;
+  room_toggle_ready: (payload: ToggleReadyPayload, ack: (result: RoomActionResult) => void) => void;
+  room_start_game: (payload: StartGamePayload, ack: (result: RoomActionResult) => void) => void;
 }
 
 export interface ServerToClientEvents {
   room_state: (state: RoomState) => void;
+  "room:state": (state: RoomState) => void;
+  "game:diceRolled": (payload: DiceRolledPayload) => void;
   error: (error: SocketErrorPayload) => void;
 }
 
