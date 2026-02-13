@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 interface ImportMetaEnv {
   readonly VITE_GAME_SLUG?: string;
   readonly VITE_GAME_TITLE?: string;

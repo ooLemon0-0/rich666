@@ -1,7 +1,7 @@
 :root {
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   color: #1f2937;
-  background: #f1f5f9;
+  background: #fff7ed;
 }
 
 * {
@@ -10,12 +10,17 @@
 
 body {
   margin: 0;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.82), transparent 36%),
+    radial-gradient(circle at 88% 8%, rgba(255, 255, 255, 0.75), transparent 30%),
+    linear-gradient(160deg, #fef3c7 0%, #ffedd5 40%, #fff7ed 100%);
+  min-height: 100vh;
 }
 
 .page {
-  max-width: 820px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 20px 16px 28px;
 }
 
 .panel {
