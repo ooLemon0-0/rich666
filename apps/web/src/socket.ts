@@ -11,6 +11,7 @@ import type {
   TradeActionResult,
   ServerToClientEvents
 } from "@rich/shared";
+import { GAME_CONFIG } from "./config/game";
 
 function normalizeServerUrl(raw: string): string {
   const value = raw.trim();
@@ -36,6 +37,7 @@ function resolveSocketBaseUrl(): string {
 
 const SERVER_URL = resolveSocketBaseUrl();
 const SOCKET_PATH = "/socket.io";
+const SOCKET_NAMESPACE = GAME_CONFIG.socketNamespace;
 const SESSION_STORAGE_KEY = "rich:session";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -108,12 +110,19 @@ function emitSocketError(error: SocketErrorPayload): void {
   errorListeners.forEach((handler) => handler(error));
 }
 
+function buildSocketEndpoint(baseUrl: string, namespace: string): string {
+  if (!namespace || namespace === "/") {
+    return baseUrl;
+  }
+  return `${baseUrl}${namespace}`;
+}
+
 function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   if (socketInstance) {
     return socketInstance;
   }
 
-  const socket = io(SERVER_URL, {
+  const socket = io(buildSocketEndpoint(SERVER_URL, SOCKET_NAMESPACE), {
     autoConnect: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
@@ -153,6 +162,7 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
     const connectError = error as SocketConnectError;
     console.error("[socket] connect_error: socket connection failed", {
       url: SERVER_URL,
+      namespace: SOCKET_NAMESPACE,
       path: SOCKET_PATH,
       message: connectError.message,
       description: connectError.description,

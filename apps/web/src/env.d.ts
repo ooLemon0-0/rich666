@@ -1,0 +1,13 @@
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_GAME_SLUG?: string;
+  readonly VITE_GAME_TITLE?: string;
+  readonly VITE_BASE_PATH?: string;
+  readonly VITE_SOCKET_URL?: string;
+  readonly VITE_SOCKET_NAMESPACE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
