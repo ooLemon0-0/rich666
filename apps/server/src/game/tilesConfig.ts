@@ -47,7 +47,6 @@ export const TILES_CONFIG: ServerTileConfig[] = Array.from({ length: 40 }, (_unu
     rent: Math.max(40, Math.floor(price * 0.22))
   };
 });
-export const TILES_CONFIG_VERSION = 1;
 
 export function getTileConfig(index: number): ServerTileConfig {
   return TILES_CONFIG[index] ?? {

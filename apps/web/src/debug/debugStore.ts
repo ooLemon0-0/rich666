@@ -1,75 +1,70 @@
 import { reactive } from "vue";
 
-export interface DebugStoreState {
-  stageRect: { width: number; height: number };
+interface DebugState {
+  enabled: boolean;
+  stageWidth: number;
+  stageHeight: number;
   boardScale: number;
   tileCount: number;
   rendered: boolean;
   hasNaN: boolean;
   tilesConfigLoaded: boolean;
   usingFallbackTiles: boolean;
-  tilesToRenderCount: number;
+  lastLayoutError: string;
+  lastRuntimeError: string;
   lastResource404Url: string;
   lastFetchError: string;
-  runtimeError: string;
 }
 
-const state = reactive<DebugStoreState>({
-  stageRect: { width: 0, height: 0 },
+export const debugState = reactive<DebugState>({
+  enabled: typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug"),
+  stageWidth: 0,
+  stageHeight: 0,
   boardScale: 1,
   tileCount: 0,
   rendered: false,
   hasNaN: false,
   tilesConfigLoaded: false,
-  usingFallbackTiles: true,
-  tilesToRenderCount: 0,
+  usingFallbackTiles: false,
+  lastLayoutError: "",
+  lastRuntimeError: "",
   lastResource404Url: "",
-  lastFetchError: "",
-  runtimeError: ""
+  lastFetchError: ""
 });
 
-export function useDebugStore(): DebugStoreState {
-  return state;
+export function setStageDebug(width: number, height: number): void {
+  debugState.stageWidth = Number.isFinite(width) ? width : 0;
+  debugState.stageHeight = Number.isFinite(height) ? height : 0;
 }
 
-export function updateDebugStageRect(width: number, height: number): void {
-  state.stageRect = { width, height };
-}
-
-export function updateDebugLayout(payload: {
-  boardScale: number;
-  tileCount: number;
+export function setLayoutDebug(payload: {
   rendered: boolean;
+  tileCount: number;
+  scale: number;
   hasNaN: boolean;
-  runtimeError?: string;
+  lastError: string;
 }): void {
-  state.boardScale = payload.boardScale;
-  state.tileCount = payload.tileCount;
-  state.rendered = payload.rendered;
-  state.hasNaN = payload.hasNaN;
-  if (payload.runtimeError) {
-    state.runtimeError = payload.runtimeError;
-  }
+  debugState.rendered = payload.rendered;
+  debugState.tileCount = payload.tileCount;
+  debugState.boardScale = payload.scale;
+  debugState.hasNaN = payload.hasNaN;
+  debugState.lastLayoutError = payload.lastError;
 }
 
-export function updateDebugTiles(payload: {
-  loaded: boolean;
-  usingFallback: boolean;
-  count: number;
-}): void {
-  state.tilesConfigLoaded = payload.loaded;
-  state.usingFallbackTiles = payload.usingFallback;
-  state.tilesToRenderCount = payload.count;
+export function setTilesDebug(payload: { loaded: boolean; usingFallback: boolean; count: number }): void {
+  debugState.tilesConfigLoaded = payload.loaded;
+  debugState.usingFallbackTiles = payload.usingFallback;
+  debugState.tileCount = payload.count;
 }
 
-export function setLastResource404(url: string): void {
-  state.lastResource404Url = url;
+export function setResource404(url: string): void {
+  debugState.lastResource404Url = url;
 }
 
-export function setLastFetchError(message: string): void {
-  state.lastFetchError = message;
+export function setFetchError(message: string): void {
+  debugState.lastFetchError = message;
 }
 
 export function setRuntimeError(message: string): void {
-  state.runtimeError = message;
+  debugState.lastRuntimeError = message;
 }

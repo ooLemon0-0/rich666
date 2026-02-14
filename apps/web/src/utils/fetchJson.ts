@@ -1,13 +1,17 @@
-import { setLastFetchError } from "../debug/debugStore";
+import { setFetchError } from "../debug/debugStore";
 
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    const detail = `[FETCH_ERR] ${url} status=${response.status} body=${body.slice(0, 120)}`;
-    console.error(detail);
-    setLastFetchError(detail);
-    throw new Error(detail);
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    let body = "";
+    try {
+      body = (await res.text()).slice(0, 180);
+    } catch {
+      body = "";
+    }
+    const msg = `[FETCH_ERR] ${url} status=${res.status} body=${body}`;
+    setFetchError(msg);
+    throw new Error(msg);
   }
-  return response.json() as Promise<T>;
+  return (await res.json()) as T;
 }

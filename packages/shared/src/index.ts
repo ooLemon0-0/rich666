@@ -129,19 +129,18 @@ export interface GameSystemEventPayload {
   roomId: RoomId;
   text: string;
 }
-export type StaticTileKind = "special" | "property";
-export interface StaticTileConfig {
+export interface GameStaticTileConfig {
   index: number;
   tileId: string;
   name: string;
-  kind: StaticTileKind;
+  kind: "special" | "property";
   price: number;
   rent: number;
 }
 export interface GameStaticConfigPayload {
   roomId: RoomId;
   version: number;
-  tiles: StaticTileConfig[];
+  tiles: GameStaticTileConfig[];
 }
 
 export type JoinOrCreateRoomResult = JoinOrCreateRoomAck | ErrorPayload;

@@ -7,7 +7,7 @@ import TileNode from "./TileNode.vue";
 import TileDetailModal from "./TileDetailModal.vue";
 import { getCharacterVisual } from "../../game/characters/characters";
 import { useRoomStore } from "../../stores/roomStore";
-import { setRuntimeError, updateDebugLayout, updateDebugStageRect } from "../../debug/debugStore";
+import { debugState, setLayoutDebug, setRuntimeError, setStageDebug } from "../../debug/debugStore";
 
 interface RoutePoint {
   xPct: number;
@@ -30,9 +30,8 @@ const layoutStatus = ref({
   hasNaN: false,
   lastError: ""
 });
-const runtimeError = ref("");
 const stageReady = computed(() => stageRect.value.width >= 300 && stageRect.value.height >= 300);
-const tiles = computed(() => roomStore.resolvedBoardTiles);
+const tiles = computed(() => roomStore.tilesToRender);
 const tilesRenderable = computed(() => stageReady.value && layoutStatus.value.rendered && routePoints.value.length === tiles.value.length);
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
@@ -54,6 +53,7 @@ function onLayoutStatusChange(payload: {
   lastError: string;
 }): void {
   layoutStatus.value = payload;
+  setLayoutDebug(payload);
 }
 
 const occupantMap = computed(() => {
@@ -148,13 +148,12 @@ onMounted(() => {
           width: Math.floor(entry.contentRect.width),
           height: Math.floor(entry.contentRect.height)
         };
-        updateDebugStageRect(stageRect.value.width, stageRect.value.height);
+        setStageDebug(stageRect.value.width, stageRect.value.height);
       });
     });
     resizeObserver.observe(stageRef.value);
   }
   errorHandler = (event: ErrorEvent) => {
-    runtimeError.value = event.message;
     setRuntimeError(event.message);
   };
   window.addEventListener("error", errorHandler);
@@ -179,7 +178,9 @@ onBeforeUnmount(() => {
 watch(
   () => stageRect.value,
   (next) => {
-    console.log("[STAGE]", next);
+    if (debugState.enabled) {
+      console.log("[STAGE]", next);
+    }
   },
   { deep: true }
 );
@@ -187,14 +188,9 @@ watch(
 watch(
   () => layoutStatus.value,
   (next) => {
-    console.log("[LAYOUT]", next);
-    updateDebugLayout({
-      boardScale: next.scale,
-      tileCount: next.tileCount,
-      rendered: next.rendered,
-      hasNaN: next.hasNaN,
-      runtimeError: next.lastError
-    });
+    if (debugState.enabled) {
+      console.log("[LAYOUT]", next);
+    }
   },
   { deep: true }
 );

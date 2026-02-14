@@ -8,11 +8,11 @@ import {
   type ClientToServerEvents,
   type CreateRoomPayload,
   type ErrorPayload,
+  type GameStaticConfigPayload,
   type InterServerEvents,
   type JoinRoomPayload,
   type JoinOrCreateRoomResult,
   type GameSystemEventPayload,
-  type GameStaticConfigPayload,
   type LeaveRoomPayload,
   type RoomActionResult,
   type ReconnectRequestPayload,
@@ -39,7 +39,7 @@ import {
   startGame,
   toggleReady
 } from "./game/roomManager.js";
-import { TILES_CONFIG, TILES_CONFIG_VERSION } from "./game/tilesConfig.js";
+import { TILES_CONFIG } from "./game/tilesConfig.js";
 
 const app = Fastify({ logger: true });
 const configuredWebOrigin = process.env.WEB_ORIGIN?.trim();
@@ -182,6 +182,15 @@ function emitRoomState(roomId: string, state: ReturnType<typeof createRoom>): vo
   io.to(roomId).emit("room:state", state);
 }
 
+function emitStaticConfig(roomId: string): void {
+  const payload: GameStaticConfigPayload = {
+    roomId,
+    version: 1,
+    tiles: TILES_CONFIG
+  };
+  io.to(roomId).emit("game:staticConfig", payload);
+}
+
 function emitSystemEvents(roomId: string, events: string[] | undefined): void {
   if (!events || events.length === 0) {
     return;
@@ -190,15 +199,6 @@ function emitSystemEvents(roomId: string, events: string[] | undefined): void {
     const payload: GameSystemEventPayload = { roomId, text };
     io.to(roomId).emit("game:systemEvent", payload);
   });
-}
-
-function emitStaticConfig(socketId: string, roomId: string): void {
-  const payload: GameStaticConfigPayload = {
-    roomId,
-    version: TILES_CONFIG_VERSION,
-    tiles: TILES_CONFIG
-  };
-  io.to(socketId).emit("game:staticConfig", payload);
 }
 
 function ackAndEmitError<TErrorResult>(
@@ -254,8 +254,8 @@ io.on("connection", (socket) => {
       role: "player"
     };
     ack(result);
+    emitStaticConfig(state.roomId);
     emitRoomState(state.roomId, state);
-    emitStaticConfig(socket.id, state.roomId);
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room created");
   });
 
@@ -296,8 +296,8 @@ io.on("connection", (socket) => {
       reconnected: joinResult.reconnected
     };
     ack(result);
+    emitStaticConfig(state.roomId);
     emitRoomState(state.roomId, state);
-    emitStaticConfig(socket.id, state.roomId);
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room joined");
   });
 
@@ -339,8 +339,8 @@ io.on("connection", (socket) => {
     }
 
     ack(reconnectResult.result);
+    emitStaticConfig(roomId);
     emitRoomState(roomId, reconnectResult.state);
-    emitStaticConfig(socket.id, roomId);
     app.log.info({ socketId: socket.id, roomId, playerId }, "player reconnected");
   });
 

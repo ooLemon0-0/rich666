@@ -2,36 +2,35 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import { router } from "./router";
-import DebugOverlay from "./debug/DebugOverlay.vue";
-import { setLastResource404, setRuntimeError } from "./debug/debugStore";
+import { debugState, setResource404, setRuntimeError } from "./debug/debugStore";
 import "./styles/fonts.css";
 import "./style.css";
 
-function installDebugInstrumentation(): void {
-  if (!new URLSearchParams(window.location.search).has("debug")) {
-    return;
-  }
+if (typeof window !== "undefined" && debugState.enabled) {
   window.addEventListener(
     "error",
     (event) => {
-      const target = event.target as (HTMLElement & { src?: string; href?: string }) | null;
-      const url = target?.src || target?.href || "";
-      if (url) {
-        if (url.includes(".js") || url.includes(".css") || url.includes(".png") || url.includes(".svg")) {
-          const msg = `[404_RESOURCE] ${url}`;
-          console.error(msg);
-          setLastResource404(url);
-        }
-      } else if (event.message) {
+      const target = event.target as HTMLElement | null;
+      const maybeUrl =
+        (target as HTMLImageElement | null)?.src ||
+        (target as HTMLLinkElement | null)?.href ||
+        (target as HTMLScriptElement | null)?.src ||
+        "";
+      if (maybeUrl && event.message === "") {
+        setResource404(maybeUrl);
+        console.error("[404_RESOURCE]", maybeUrl);
+        return;
+      }
+      if (event.message) {
         setRuntimeError(event.message);
       }
     },
     true
   );
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason instanceof Error ? event.reason.message : String(event.reason);
+    setRuntimeError(reason);
+  });
 }
 
-installDebugInstrumentation();
-
-const app = createApp(App).use(createPinia()).use(router);
-app.component("DebugOverlay", DebugOverlay);
-app.mount("#app");
+createApp(App).use(createPinia()).use(router).mount("#app");
