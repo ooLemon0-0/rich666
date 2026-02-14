@@ -6,8 +6,8 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  width: number;
-  height: number;
+  widthPx: number;
+  heightPx: number;
   isCorner: boolean;
 }
 
@@ -20,10 +20,10 @@ const emit = defineEmits<{
   tileScaleChange: [scale: number];
 }>();
 
-const VIEW_WIDTH = 1160;
-const VIEW_HEIGHT = 820;
-const EDGE_TILE_SIZE = 104;
-const CORNER_TILE_SIZE = 142;
+const VIEW_WIDTH = 1000;
+const VIEW_HEIGHT = 680;
+const CORNER_BASE_SIZE = 140;
+const EDGE_BASE_SIZE = 102;
 
 function computePoints(): void {
   if (props.tileCount <= 0) {
@@ -35,12 +35,13 @@ function computePoints(): void {
     stageWidth: VIEW_WIDTH,
     stageHeight: VIEW_HEIGHT,
     tileCount: props.tileCount,
-    edgeSize: EDGE_TILE_SIZE,
-    cornerSize: CORNER_TILE_SIZE,
-    margin: 46,
-    safeScaleMultiplier: 1.1
+    cornerSize: CORNER_BASE_SIZE,
+    edgeSize: EDGE_BASE_SIZE,
+    margin: 44,
+    minScale: 0.66,
+    safetyGap: 2
   });
-  emit("tileScaleChange", result.tileScale);
+  emit("tileScaleChange", result.boardScale);
   emit("pointsChange", result.points);
 }
 
@@ -59,41 +60,26 @@ watch(
 </script>
 
 <template>
-  <svg class="route-svg" viewBox="0 0 1160 820" preserveAspectRatio="xMidYMid meet">
+  <svg class="route-svg" viewBox="0 0 1000 680" preserveAspectRatio="xMidYMid meet">
     <defs>
       <linearGradient id="routeStroke" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stop-color="#93c5fd" />
         <stop offset="100%" stop-color="#38bdf8" />
       </linearGradient>
-      <linearGradient id="innerBoard" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="rgba(255,255,255,0.35)" />
-        <stop offset="100%" stop-color="rgba(186,230,253,0.18)" />
-      </linearGradient>
     </defs>
     <rect
-      x="46"
-      y="46"
-      width="1068"
-      height="728"
-      rx="42"
-      ry="42"
+      x="44"
+      y="44"
+      width="912"
+      height="592"
+      rx="40"
+      ry="40"
       fill="none"
       stroke="url(#routeStroke)"
-      stroke-width="22"
+      stroke-width="16"
       stroke-linecap="round"
       stroke-linejoin="round"
-      opacity="0.26"
-    />
-    <rect
-      x="196"
-      y="196"
-      width="768"
-      height="428"
-      rx="34"
-      ry="34"
-      fill="url(#innerBoard)"
-      stroke="rgba(148,163,184,0.35)"
-      stroke-width="2"
+      opacity="0.24"
     />
   </svg>
 </template>

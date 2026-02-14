@@ -9,8 +9,8 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  width: number;
-  height: number;
+  widthPx: number;
+  heightPx: number;
   isCorner: boolean;
 }
 
@@ -19,7 +19,9 @@ const props = defineProps<{
   tile: BoardTileConfig;
   point: RoutePoint;
   ownerCharacterId: string | null;
-  scale?: number;
+  width: number;
+  height: number;
+  isCorner?: boolean;
   selected?: boolean;
   occupants: Array<{ playerId: string; avatarUrl: string; color: string }>;
 }>();
@@ -33,10 +35,6 @@ const ROTATE_OFFSET_DEG = 2;
 const ownerColor = computed(() => getCharacterColor(props.ownerCharacterId));
 const ownerVisual = computed(() => getCharacterVisual(props.ownerCharacterId));
 const nameClass = computed(() => (props.tile.nameZh.length >= 4 ? "name long" : "name"));
-const tokenSize = computed(() => {
-  const base = Math.min(props.point.width, props.point.height) * (props.scale ?? 1);
-  return Math.max(20, Math.min(28, Math.round(base * 0.24)));
-});
 
 function getTokenOffset(index: number, total: number): { x: number; y: number } {
   if (total <= 1) {
@@ -67,13 +65,12 @@ function handleClick(): void {
 <template>
   <article
     class="tile-node"
-    :class="[tile.type, { selected: props.selected, corner: point.isCorner }]"
+    :class="[tile.type, { selected: props.selected, corner: props.isCorner }]"
     :style="{
       left: `${point.xPct}%`,
       top: `${point.yPct}%`,
-      '--tile-w': `${point.width}px`,
-      '--tile-h': `${point.height}px`,
-      '--tile-scale': props.scale ?? 1,
+      '--tile-w': `${props.width}px`,
+      '--tile-h': `${props.height}px`,
       '--base-rotate': `${point.angle}deg`,
       '--extra-rotate': props.selected ? `${ROTATE_OFFSET_DEG}deg` : '0deg'
     }"
@@ -102,7 +99,7 @@ function handleClick(): void {
             top: `calc(50% + ${getTokenOffset(index, Math.min(occupants.length, 6)).y}px)`
           }"
         >
-          <TokenAvatar :avatar-url="player.avatarUrl" :color="player.color" :size="tokenSize" />
+          <TokenAvatar :avatar-url="player.avatarUrl" :color="player.color" :size="20" />
         </span>
       </div>
     </div>
@@ -114,20 +111,20 @@ function handleClick(): void {
   position: absolute;
   width: var(--tile-w);
   height: var(--tile-h);
-  border-radius: 16px;
+  border-radius: 14px;
   border: 2px solid rgba(148, 163, 184, 0.8);
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
   background: rgba(255, 255, 255, 0.92);
-  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + var(--extra-rotate))) scale(var(--tile-scale));
+  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + var(--extra-rotate)));
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: hidden;
   cursor: pointer;
 }
 .tile-node:hover {
-  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + 2deg)) scale(calc(var(--tile-scale) * 1.04));
+  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + 2deg)) scale(1.04);
 }
 .tile-node.selected {
-  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + 2deg)) scale(calc(var(--tile-scale) * 1.07));
+  transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + 2deg)) scale(1.07);
   border-color: rgba(56, 189, 248, 0.95);
   box-shadow:
     0 12px 22px rgba(15, 23, 42, 0.28),
@@ -144,8 +141,8 @@ function handleClick(): void {
   width: 100%;
   height: 100%;
   position: relative;
-  border-radius: 14px;
-  padding: 8px 6px 6px;
+  border-radius: 12px;
+  padding: 8px;
   display: grid;
   grid-template-rows: auto 1fr auto;
   place-items: center;
@@ -188,12 +185,12 @@ function handleClick(): void {
   position: absolute;
   top: 4px;
   left: 4px;
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 .zhou {
@@ -209,14 +206,14 @@ function handleClick(): void {
   font-size: 18px;
   font-weight: 800;
   color: #0f172a;
-  line-height: 1.08;
+  line-height: 1.05;
   text-align: center;
-  max-width: 84px;
+  max-width: 88%;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  -webkit-text-stroke: 0.8px rgba(255, 255, 255, 0.88);
+  -webkit-text-stroke: 0.9px rgba(255, 255, 255, 0.9);
   text-shadow:
     0 1px 0 rgba(255, 255, 255, 0.7),
     0 2px 6px rgba(15, 23, 42, 0.22);
@@ -226,10 +223,9 @@ function handleClick(): void {
 }
 .tile-node.corner .name {
   font-size: 20px;
-  max-width: 98px;
 }
 .tile-node.corner .name.long {
-  font-size: 17px;
+  font-size: 16px;
 }
 .tokens {
   position: absolute;

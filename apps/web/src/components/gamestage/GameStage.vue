@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import BoardRoute from "./BoardRoute.vue";
-import BoardCenterDecor from "./BoardCenterDecor.vue";
 import DiceButton from "./DiceButton.vue";
 import DiceOverlay from "./DiceOverlay.vue";
 import TileNode from "./TileNode.vue";
@@ -14,14 +13,13 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  width: number;
-  height: number;
+  widthPx: number;
+  heightPx: number;
   isCorner: boolean;
 }
 
 const roomStore = useRoomStore();
 const routePoints = ref<RoutePoint[]>([]);
-const tileScale = ref(1);
 const selectedTileIndex = ref<number | null>(null);
 
 const tiles = BOARD_TILES;
@@ -30,13 +28,16 @@ function onPointsChange(points: RoutePoint[]): void {
   routePoints.value = points;
 }
 
-function onTileScaleChange(scale: number): void {
-  tileScale.value = scale;
+function onTileScaleChange(_scale: number): void {
+  // kept for compatibility with BoardRoute emit signature
 }
 
 const occupantMap = computed(() => {
   const map = new Map<number, Array<{ playerId: string; avatarUrl: string; color: string }>>();
   roomStore.players.forEach((player) => {
+    if (player.status === "left") {
+      return;
+    }
     const pos = player.position % tiles.length;
     const list = map.get(pos) ?? [];
     const visual = getCharacterVisual(player.selectedCharacterId);
@@ -119,15 +120,16 @@ onBeforeUnmount(() => {
 <template>
   <section class="game-stage">
     <BoardRoute :tile-count="tiles.length" @points-change="onPointsChange" @tile-scale-change="onTileScaleChange" />
-    <BoardCenterDecor />
 
     <TileNode
       v-for="(tile, index) in tiles"
       :key="tile.id"
       :tile-index="index"
       :tile="tile"
-      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, width: 104, height: 104, isCorner: false }"
-      :scale="tileScale"
+      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, widthPx: 96, heightPx: 96, isCorner: false }"
+      :width="routePoints[index]?.widthPx ?? 96"
+      :height="routePoints[index]?.heightPx ?? 96"
+      :is-corner="routePoints[index]?.isCorner ?? false"
       :owner-character-id="ownerCharacterByIndex[index] ?? null"
       :selected="selectedTileIndex === index"
       :occupants="occupantMap.get(index) ?? []"
@@ -151,13 +153,31 @@ onBeforeUnmount(() => {
 <style scoped>
 .game-stage {
   position: relative;
-  min-height: 760px;
+  min-height: 700px;
   border-radius: 18px;
   border: 2px solid rgba(186, 230, 253, 0.9);
   overflow: hidden;
+  background: linear-gradient(170deg, #e0f2fe 0%, #bae6fd 55%, #93c5fd 100%);
+}
+.game-stage::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(56%, 520px);
+  height: min(48%, 360px);
+  transform: translate(-50%, -50%);
+  border-radius: 28px;
+  border: 2px solid rgba(255, 255, 255, 0.52);
   background:
-    radial-gradient(circle at 22% 24%, rgba(255, 255, 255, 0.42), transparent 44%),
-    radial-gradient(circle at 78% 76%, rgba(219, 234, 254, 0.34), transparent 46%),
-    linear-gradient(165deg, #dbeafe 0%, #bfdbfe 45%, #93c5fd 100%);
+    radial-gradient(circle at 26% 24%, rgba(255, 255, 255, 0.44), transparent 50%),
+    linear-gradient(170deg, rgba(254, 249, 195, 0.44), rgba(254, 240, 138, 0.3));
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.14);
+  pointer-events: none;
+  z-index: 0;
+}
+.game-stage > * {
+  position: relative;
+  z-index: 1;
 }
 </style>

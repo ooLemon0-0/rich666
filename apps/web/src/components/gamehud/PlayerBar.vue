@@ -41,8 +41,8 @@ const roomStore = useRoomStore();
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px 9px;
-  border-radius: 14px;
+  padding: 10px;
+  border-radius: 12px;
   border: 1px solid rgba(191, 219, 254, 0.8);
   background: rgba(255, 255, 255, 0.86);
 }
@@ -57,8 +57,7 @@ const roomStore = useRoomStore();
   height: 52px;
   border-radius: 999px;
   object-fit: cover;
-  border: 2px solid rgba(30, 64, 175, 0.3);
-  box-shadow: 0 4px 10px rgba(30, 64, 175, 0.18);
+  border: 2px solid rgba(30, 64, 175, 0.34);
 }
 .meta {
   min-width: 0;
@@ -69,7 +68,7 @@ const roomStore = useRoomStore();
   line-height: 1.2;
 }
 .name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   white-space: nowrap;
@@ -114,11 +113,12 @@ const roomStore = useRoomStore();
 }
 @media (max-width: 1024px) {
   .player-bar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 4px;
   }
-  .avatar {
-    width: 46px;
-    height: 46px;
+  .player-card {
+    min-width: 200px;
   }
 }
 </style>

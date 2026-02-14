@@ -26,6 +26,7 @@ import {
   buyRequest,
   createRoom,
   disconnectSocket,
+  gcStaleRooms,
   getPlayerRefBySocket,
   joinRoom,
   leaveRoom,
@@ -490,9 +491,6 @@ io.on("connection", (socket) => {
       return;
     }
     ack(result.result);
-    socket.leave(roomId);
-    socket.data.roomId = undefined;
-    socket.data.playerId = undefined;
     emitRoomState(roomId, result.state);
   });
 
@@ -576,6 +574,10 @@ io.engine.on("connection_error", (error) => {
     "engine connection error"
   );
 });
+
+setInterval(() => {
+  gcStaleRooms();
+}, 15_000);
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";

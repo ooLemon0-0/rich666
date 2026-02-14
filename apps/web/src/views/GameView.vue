@@ -173,7 +173,7 @@ async function leaveToLobby(): Promise<void> {
 }
 .hud-grid {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 260px;
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
   gap: 10px;
   align-items: start;
 }

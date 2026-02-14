@@ -2,26 +2,26 @@ export interface RectBoardPointV2 {
   xPct: number;
   yPct: number;
   angle: number;
-  width: number;
-  height: number;
+  widthPx: number;
+  heightPx: number;
   isCorner: boolean;
 }
 
-export interface RectBoardLayoutResultV2 {
+export interface RectBoardLayoutV2Result {
   points: RectBoardPointV2[];
-  tileScale: number;
+  boardScale: number;
   collisionPairs: Array<[number, number]>;
 }
 
-interface RectBoardLayoutInputV2 {
+interface RectBoardLayoutV2Input {
   stageWidth: number;
   stageHeight: number;
   tileCount: number;
-  edgeSize: number;
   cornerSize: number;
+  edgeSize: number;
   margin: number;
-  safeScaleMultiplier?: number;
   minScale?: number;
+  safetyGap?: number;
 }
 
 interface AbsPoint {
@@ -33,21 +33,19 @@ interface AbsPoint {
   isCorner: boolean;
 }
 
-function getCollisionPairs(points: AbsPoint[], tileScale: number, safeScaleMultiplier: number): Array<[number, number]> {
+function isCornerIndex(index: number): boolean {
+  return index % 10 === 0;
+}
+
+function getCollisionPairs(points: AbsPoint[], gap: number): Array<[number, number]> {
   const pairs: Array<[number, number]> = [];
   for (let i = 0; i < points.length; i += 1) {
-    const leftA = points[i].x - ((points[i].width * tileScale * safeScaleMultiplier) / 2);
-    const rightA = points[i].x + ((points[i].width * tileScale * safeScaleMultiplier) / 2);
-    const topA = points[i].y - ((points[i].height * tileScale * safeScaleMultiplier) / 2);
-    const bottomA = points[i].y + ((points[i].height * tileScale * safeScaleMultiplier) / 2);
     for (let j = i + 1; j < points.length; j += 1) {
-      const leftB = points[j].x - ((points[j].width * tileScale * safeScaleMultiplier) / 2);
-      const rightB = points[j].x + ((points[j].width * tileScale * safeScaleMultiplier) / 2);
-      const topB = points[j].y - ((points[j].height * tileScale * safeScaleMultiplier) / 2);
-      const bottomB = points[j].y + ((points[j].height * tileScale * safeScaleMultiplier) / 2);
-      const overlapX = leftA < rightB && rightA > leftB;
-      const overlapY = topA < bottomB && bottomA > topB;
-      if (overlapX && overlapY) {
+      const a = points[i];
+      const b = points[j];
+      const halfW = (a.width + b.width) / 2 + gap;
+      const halfH = (a.height + b.height) / 2 + gap;
+      if (Math.abs(a.x - b.x) < halfW && Math.abs(a.y - b.y) < halfH) {
         pairs.push([i, j]);
       }
     }
@@ -55,97 +53,109 @@ function getCollisionPairs(points: AbsPoint[], tileScale: number, safeScaleMulti
   return pairs;
 }
 
-export function layoutRectBoardV2(input: RectBoardLayoutInputV2): RectBoardLayoutResultV2 {
-  const sideSlots = Math.floor(input.tileCount / 4);
-  const edgeCount = Math.max(0, sideSlots - 1);
-  const safeScaleMultiplier = input.safeScaleMultiplier ?? 1.08;
-  const minScale = input.minScale ?? 0.7;
+function buildSideCenters(start: number, end: number, steps: number): number[] {
+  return Array.from({ length: steps }, (_unused, idx) => start + ((idx + 0.5) * (end - start)) / steps);
+}
 
-  const availableWidth = input.stageWidth - input.margin * 2;
-  const availableHeight = input.stageHeight - input.margin * 2;
-  const requiredWidth = input.cornerSize * 2 + input.edgeSize * edgeCount;
-  const requiredHeight = input.cornerSize * 2 + input.edgeSize * edgeCount;
-  let tileScale = Math.min(1, (availableWidth / requiredWidth) * 0.985, (availableHeight / requiredHeight) * 0.985);
-  tileScale = Math.max(minScale, Number(tileScale.toFixed(4)));
-
-  const halfCorner = input.cornerSize / 2;
-  const halfEdge = input.edgeSize / 2;
-  const left = input.margin + halfCorner;
-  const right = input.stageWidth - input.margin - halfCorner;
-  const top = input.margin + halfCorner;
-  const bottom = input.stageHeight - input.margin - halfCorner;
-
-  const innerLeft = left + halfCorner + halfEdge;
-  const innerRight = right - halfCorner - halfEdge;
-  const innerTop = top + halfCorner + halfEdge;
-  const innerBottom = bottom - halfCorner - halfEdge;
-  const edgeStepX = edgeCount > 1 ? (innerRight - innerLeft) / (edgeCount - 1) : 0;
-  const edgeStepY = edgeCount > 1 ? (innerBottom - innerTop) / (edgeCount - 1) : 0;
+export function layoutRectBoardV2(input: RectBoardLayoutV2Input): RectBoardLayoutV2Result {
+  const minScale = input.minScale ?? 0.66;
+  const safetyGap = input.safetyGap ?? 2;
 
   const points: AbsPoint[] = [];
-  points.push({ x: left, y: top, angle: 0, width: input.cornerSize, height: input.cornerSize, isCorner: true });
-  for (let i = 0; i < edgeCount; i += 1) {
-    points.push({
-      x: innerLeft + edgeStepX * i,
-      y: top,
-      angle: 0,
-      width: input.edgeSize,
-      height: input.edgeSize,
-      isCorner: false
-    });
-  }
-  points.push({ x: right, y: top, angle: 90, width: input.cornerSize, height: input.cornerSize, isCorner: true });
-  for (let i = 0; i < edgeCount; i += 1) {
-    points.push({
-      x: right,
-      y: innerTop + edgeStepY * i,
-      angle: 90,
-      width: input.edgeSize,
-      height: input.edgeSize,
-      isCorner: false
-    });
-  }
-  points.push({ x: right, y: bottom, angle: 180, width: input.cornerSize, height: input.cornerSize, isCorner: true });
-  for (let i = edgeCount - 1; i >= 0; i -= 1) {
-    points.push({
-      x: innerLeft + edgeStepX * i,
-      y: bottom,
-      angle: 180,
-      width: input.edgeSize,
-      height: input.edgeSize,
-      isCorner: false
-    });
-  }
-  points.push({ x: left, y: bottom, angle: 270, width: input.cornerSize, height: input.cornerSize, isCorner: true });
-  for (let i = edgeCount - 1; i >= 0; i -= 1) {
-    points.push({
-      x: left,
-      y: innerTop + edgeStepY * i,
-      angle: 270,
-      width: input.edgeSize,
-      height: input.edgeSize,
-      isCorner: false
-    });
-  }
+  let boardScale = 1;
 
-  let pairs = getCollisionPairs(points, tileScale, safeScaleMultiplier);
-  while (pairs.length > 0 && tileScale > minScale) {
-    tileScale = Math.max(minScale, Number((tileScale * 0.97).toFixed(4)));
-    pairs = getCollisionPairs(points, tileScale, safeScaleMultiplier);
-    if (tileScale === minScale) {
-      break;
+  while (boardScale >= minScale) {
+    points.length = 0;
+
+    const corner = input.cornerSize * boardScale;
+    const edge = input.edgeSize * boardScale;
+    const left = input.margin + corner / 2;
+    const top = input.margin + corner / 2;
+    const right = input.stageWidth - input.margin - corner / 2;
+    const bottom = input.stageHeight - input.margin - corner / 2;
+    const innerLeft = left + corner / 2;
+    const innerRight = right - corner / 2;
+    const innerTop = top + corner / 2;
+    const innerBottom = bottom - corner / 2;
+
+    const topCenters = buildSideCenters(innerLeft, innerRight, 9);
+    const rightCenters = buildSideCenters(innerTop, innerBottom, 9);
+    const bottomCenters = buildSideCenters(innerRight, innerLeft, 9);
+    const leftCenters = buildSideCenters(innerBottom, innerTop, 9);
+
+    for (let i = 0; i < input.tileCount; i += 1) {
+      const side = Math.floor(i / 10);
+      const slot = i % 10;
+      const cornerTile = isCornerIndex(i);
+      const width = cornerTile ? corner : edge;
+      const height = cornerTile ? corner : edge;
+      if (side === 0) {
+        points.push({
+          x: slot === 0 ? left : topCenters[slot - 1],
+          y: top,
+          angle: 0,
+          width,
+          height,
+          isCorner: cornerTile
+        });
+      } else if (side === 1) {
+        points.push({
+          x: right,
+          y: slot === 0 ? top : rightCenters[slot - 1],
+          angle: 90,
+          width,
+          height,
+          isCorner: cornerTile
+        });
+      } else if (side === 2) {
+        points.push({
+          x: slot === 0 ? right : bottomCenters[slot - 1],
+          y: bottom,
+          angle: 180,
+          width,
+          height,
+          isCorner: cornerTile
+        });
+      } else {
+        points.push({
+          x: left,
+          y: slot === 0 ? bottom : leftCenters[slot - 1],
+          angle: 270,
+          width,
+          height,
+          isCorner: cornerTile
+        });
+      }
     }
+
+    const collisions = getCollisionPairs(points, safetyGap);
+    if (collisions.length === 0) {
+      return {
+        boardScale,
+        collisionPairs: collisions,
+        points: points.map((point) => ({
+          xPct: (point.x / input.stageWidth) * 100,
+          yPct: (point.y / input.stageHeight) * 100,
+          angle: point.angle,
+          widthPx: point.width,
+          heightPx: point.height,
+          isCorner: point.isCorner
+        }))
+      };
+    }
+
+    boardScale = Number((boardScale * 0.97).toFixed(4));
   }
 
   return {
-    tileScale,
-    collisionPairs: pairs,
+    boardScale,
+    collisionPairs: getCollisionPairs(points, safetyGap),
     points: points.map((point) => ({
       xPct: (point.x / input.stageWidth) * 100,
       yPct: (point.y / input.stageHeight) * 100,
       angle: point.angle,
-      width: point.width,
-      height: point.height,
+      widthPx: point.width,
+      heightPx: point.height,
       isCorner: point.isCorner
     }))
   };

@@ -100,8 +100,8 @@ const socketToSpectator = new Map<string, SpectatorRef>();
 const playerToSocket = new Map<string, string>();
 const spectatorToSocket = new Map<string, string>();
 const ROOM_SIZE_LIMIT = 6;
-const ROOM_EMPTY_GRACE_MS = 60_000;
-const roomDestroyTimers = new Map<RoomId, ReturnType<typeof setTimeout>>();
+const DISCONNECTED_GRACE_MS = 60_000;
+const ROOM_IDLE_TTL_MS = 10 * 60_000;
 
 function randomId(length = 6): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -136,72 +136,6 @@ function generateUniqueRoomId(): RoomId {
   return roomId;
 }
 
-function touchRoom(record: RoomRecord): void {
-  record.lastActivityAt = Date.now();
-}
-
-function clearDestroyTimer(roomId: RoomId): void {
-  const timer = roomDestroyTimers.get(roomId);
-  if (!timer) {
-    return;
-  }
-  clearTimeout(timer);
-  roomDestroyTimers.delete(roomId);
-}
-
-function destroyRoom(roomId: RoomId, reason: "empty" | "grace_timeout"): void {
-  const record = rooms.get(roomId);
-  if (!record) {
-    return;
-  }
-  clearDestroyTimer(roomId);
-  record.state.players.forEach((player) => {
-    playerToSocket.delete(roomPlayerKey(roomId, player.playerId));
-  });
-  record.state.spectators.forEach((spectator) => {
-    spectatorToSocket.delete(roomSpectatorKey(roomId, spectator.spectatorId));
-  });
-  rooms.delete(roomId);
-  console.info("[ROOM] destroyed", { roomId, reason });
-}
-
-function maybeDestroyRoom(roomId: RoomId): void {
-  const record = rooms.get(roomId);
-  if (!record) {
-    clearDestroyTimer(roomId);
-    return;
-  }
-  const activePlayers = record.state.players.filter((item) => item.status === "active" && item.connected).length;
-  const disconnectedPlayers = record.state.players.filter((item) => item.status === "disconnected").length;
-  const connectedSpectators = record.state.spectators.filter((item) => item.connected).length;
-
-  if (activePlayers > 0 || connectedSpectators > 0) {
-    clearDestroyTimer(roomId);
-    return;
-  }
-
-  if (disconnectedPlayers === 0) {
-    destroyRoom(roomId, "empty");
-    return;
-  }
-
-  const elapsed = Date.now() - record.lastActivityAt;
-  if (elapsed >= ROOM_EMPTY_GRACE_MS) {
-    destroyRoom(roomId, "grace_timeout");
-    return;
-  }
-
-  if (roomDestroyTimers.has(roomId)) {
-    return;
-  }
-  const timeoutMs = Math.max(500, ROOM_EMPTY_GRACE_MS - elapsed + 50);
-  const timer = setTimeout(() => {
-    roomDestroyTimers.delete(roomId);
-    maybeDestroyRoom(roomId);
-  }, timeoutMs);
-  roomDestroyTimers.set(roomId, timer);
-}
-
 function buildPlayer(playerId: PlayerId, nickname: string, playerToken: string): Player {
   return {
     playerId,
@@ -229,6 +163,69 @@ function buildSpectator(nickname: string, playerToken: string): Spectator {
 
 function computePhase(playersCount: number): RoomPhase {
   return playersCount >= 2 ? "rolling" : "waiting";
+}
+
+function touchRoom(record: RoomRecord): void {
+  record.lastActivityAt = Date.now();
+}
+
+function destroyRoom(roomId: RoomId, reason: string): void {
+  const record = rooms.get(roomId);
+  if (!record) {
+    return;
+  }
+  record.state.players.forEach((player) => {
+    const key = roomPlayerKey(roomId, player.playerId);
+    const socketId = playerToSocket.get(key);
+    if (socketId) {
+      socketToPlayer.delete(socketId);
+    }
+    playerToSocket.delete(key);
+  });
+  record.state.spectators.forEach((spectator) => {
+    const key = roomSpectatorKey(roomId, spectator.spectatorId);
+    const socketId = spectatorToSocket.get(key);
+    if (socketId) {
+      socketToSpectator.delete(socketId);
+    }
+    spectatorToSocket.delete(key);
+  });
+  rooms.delete(roomId);
+  console.info(`[ROOM] destroyed: roomId=${roomId} reason=${reason}`);
+}
+
+function maybeDestroyRoom(roomId: RoomId): boolean {
+  const record = rooms.get(roomId);
+  if (!record) {
+    return false;
+  }
+  const now = Date.now();
+  const activePlayers = record.state.players.filter((player) => player.status === "active" && player.connected).length;
+  const disconnectedPlayers = record.state.players.filter((player) => player.status === "disconnected").length;
+  const connectedSpectators = record.state.spectators.filter((spectator) => spectator.connected).length;
+
+  if (activePlayers === 0 && connectedSpectators === 0) {
+    if (disconnectedPlayers === 0) {
+      destroyRoom(roomId, "empty");
+      return true;
+    }
+    if (now - record.lastActivityAt >= DISCONNECTED_GRACE_MS) {
+      destroyRoom(roomId, "disconnected_grace_expired");
+      return true;
+    }
+  }
+
+  if (activePlayers === 0 && connectedSpectators === 0 && now - record.lastActivityAt >= ROOM_IDLE_TTL_MS) {
+    destroyRoom(roomId, "idle_ttl");
+    return true;
+  }
+  return false;
+}
+
+export function gcStaleRooms(): void {
+  Array.from(rooms.keys()).forEach((roomId) => {
+    maybeDestroyRoom(roomId);
+  });
 }
 
 function createBoard(): Tile[] {
@@ -298,10 +295,9 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
     existingPlayer.connected = true;
     existingPlayer.status = "active";
     existingPlayer.nickname = nickname;
+    touchRoom(record);
     socketToPlayer.set(socketId, { roomId, playerId: existingPlayer.playerId });
     playerToSocket.set(roomPlayerKey(roomId, existingPlayer.playerId), socketId);
-    touchRoom(record);
-    maybeDestroyRoom(roomId);
     return { ok: true, state: record.state, role: "player", playerId: existingPlayer.playerId, reconnected: true };
   }
 
@@ -313,10 +309,9 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
     }
     existingSpectator.connected = true;
     existingSpectator.nickname = nickname;
+    touchRoom(record);
     socketToSpectator.set(socketId, { roomId, spectatorId: existingSpectator.spectatorId });
     spectatorToSocket.set(roomSpectatorKey(roomId, existingSpectator.spectatorId), socketId);
-    touchRoom(record);
-    maybeDestroyRoom(roomId);
     return {
       ok: true,
       state: record.state,
@@ -329,10 +324,9 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
   if (record.state.status === "in_game") {
     const spectator = buildSpectator(nickname, playerToken);
     record.state.spectators.push(spectator);
+    touchRoom(record);
     socketToSpectator.set(socketId, { roomId, spectatorId: spectator.spectatorId });
     spectatorToSocket.set(roomSpectatorKey(roomId, spectator.spectatorId), socketId);
-    touchRoom(record);
-    maybeDestroyRoom(roomId);
     return { ok: true, state: record.state, role: "spectator", playerId: spectator.spectatorId };
   }
 
@@ -342,14 +336,13 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
 
   const player = buildPlayer(randomPlayerId(), nickname, playerToken);
   record.state.players.push(player);
+  touchRoom(record);
   record.state.phase = "waiting";
   if (!record.state.currentTurnPlayerId) {
     record.state.currentTurnPlayerId = record.state.players[0]?.playerId ?? null;
   }
   socketToPlayer.set(socketId, { roomId, playerId: player.playerId });
   playerToSocket.set(roomPlayerKey(roomId, player.playerId), socketId);
-  touchRoom(record);
-  maybeDestroyRoom(roomId);
   return { ok: true, state: record.state, role: "player", playerId: player.playerId };
 }
 
@@ -410,10 +403,8 @@ export function disconnectSocket(socketId: string): RoomState | null {
       record.state.pendingBuyTileIndex = null;
     }
   }
-
   touchRoom(record);
   maybeDestroyRoom(playerRef.roomId);
-
   return record.state;
 }
 
@@ -585,9 +576,9 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
   tile.ownerPlayerId = validation.player.playerId;
   tile.ownerCharacterId = validation.player.selectedCharacterId;
   advanceTurn(validation.state);
-  const buyRecord = rooms.get(roomId);
-  if (buyRecord) {
-    touchRoom(buyRecord);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
 
   return {
@@ -609,9 +600,9 @@ export function skipBuy(socketId: string, roomId: RoomId): TradeResult {
   }
 
   advanceTurn(validation.state);
-  const skipRecord = rooms.get(roomId);
-  if (skipRecord) {
-    touchRoom(skipRecord);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
   return {
     ok: true,
@@ -656,6 +647,7 @@ export function reconnectPlayer(
   playerToSocket.set(playerKey, socketId);
   player.connected = true;
   player.status = "active";
+  touchRoom(record);
 
   const connectedCount = record.state.players.filter((item) => item.connected).length;
   if (record.state.status === "in_game" && connectedCount >= 2 && record.state.phase === "waiting") {
@@ -664,8 +656,6 @@ export function reconnectPlayer(
       record.state.currentTurnPlayerId = playerId;
     }
   }
-  touchRoom(record);
-  maybeDestroyRoom(roomId);
 
   return {
     ok: true,
@@ -724,9 +714,9 @@ export function selectCharacter(
   }
   entry.player.selectedCharacterId = nextCharacterId;
   entry.player.ready = false;
-  const selectRecord = rooms.get(roomId);
-  if (selectRecord) {
-    touchRoom(selectRecord);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
   return {
     ok: true,
@@ -752,9 +742,9 @@ export function toggleReady(socketId: string, roomId: RoomId): RoomActionResult 
     return { ok: false, code: "ERR_INVALID_ACTION" };
   }
   entry.player.ready = !entry.player.ready;
-  const readyRecord = rooms.get(roomId);
-  if (readyRecord) {
-    touchRoom(readyRecord);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
   return {
     ok: true,
@@ -792,9 +782,9 @@ export function startGame(socketId: string, roomId: RoomId): RoomActionResult {
     entry.state.currentTurnPlayerId = connectedPlayers[0].playerId;
   }
   entry.state.pendingBuyTileIndex = null;
-  const startRecord = rooms.get(roomId);
-  if (startRecord) {
-    touchRoom(startRecord);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
   return {
     ok: true,
@@ -823,11 +813,6 @@ export function leaveRoom(socketId: string, roomId: RoomId, playerToken: string)
   entry.player.status = "left";
   entry.player.connected = false;
   entry.player.ready = false;
-  socketToPlayer.delete(socketId);
-  const playerKey = roomPlayerKey(roomId, entry.player.playerId);
-  if (playerToSocket.get(playerKey) === socketId) {
-    playerToSocket.delete(playerKey);
-  }
 
   if (entry.state.hostPlayerId === entry.player.playerId) {
     const nextHost = entry.state.players.find((item) => item.status !== "left");
@@ -837,11 +822,11 @@ export function leaveRoom(socketId: string, roomId: RoomId, playerToken: string)
   if (entry.state.currentTurnPlayerId === entry.player.playerId) {
     advanceTurn(entry.state);
   }
-  const leaveRecord = rooms.get(roomId);
-  if (leaveRecord) {
-    touchRoom(leaveRecord);
-    maybeDestroyRoom(roomId);
+  const record = rooms.get(roomId);
+  if (record) {
+    touchRoom(record);
   }
+  maybeDestroyRoom(roomId);
 
   return {
     ok: true,
