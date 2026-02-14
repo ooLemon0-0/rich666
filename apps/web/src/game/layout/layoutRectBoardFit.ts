@@ -1,10 +1,11 @@
 export interface RectBoardFitPoint {
-  xPct: number;
-  yPct: number;
-  wPct: number;
-  hPct: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
   angle: number;
   isCorner: boolean;
+  side: "top" | "right" | "bottom" | "left";
 }
 
 export interface RectBoardFitResult {
@@ -28,6 +29,7 @@ interface AbsPoint {
   h: number;
   angle: number;
   isCorner: boolean;
+  side: "top" | "right" | "bottom" | "left";
 }
 
 export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult {
@@ -70,7 +72,8 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
         w: size,
         h: size,
         angle: 0,
-        isCorner
+        isCorner,
+        side: "top"
       });
     } else if (side === 1) {
       points.push({
@@ -79,7 +82,8 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
         w: size,
         h: size,
         angle: 90,
-        isCorner
+        isCorner,
+        side: "right"
       });
     } else if (side === 2) {
       points.push({
@@ -88,7 +92,8 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
         w: size,
         h: size,
         angle: 180,
-        isCorner
+        isCorner,
+        side: "bottom"
       });
     } else {
       points.push({
@@ -97,20 +102,14 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
         w: size,
         h: size,
         angle: 270,
-        isCorner
+        isCorner,
+        side: "left"
       });
     }
   }
 
   return {
     boardScale,
-    points: points.map((point) => ({
-      xPct: (point.x / input.stageWidth) * 100,
-      yPct: (point.y / input.stageHeight) * 100,
-      wPct: (point.w / input.stageWidth) * 100,
-      hPct: (point.h / input.stageHeight) * 100,
-      angle: point.angle,
-      isCorner: point.isCorner
-    }))
+    points
   };
 }

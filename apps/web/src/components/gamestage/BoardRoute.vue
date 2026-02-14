@@ -3,12 +3,13 @@ import { computed, nextTick, onMounted, watch } from "vue";
 import { layoutRectBoardFit } from "../../game/layout/layoutRectBoardFit";
 
 interface RoutePoint {
-  xPct: number;
-  yPct: number;
+  x: number;
+  y: number;
   angle: number;
-  wPct: number;
-  hPct: number;
+  w: number;
+  h: number;
   isCorner: boolean;
+  side: "top" | "right" | "bottom" | "left";
 }
 
 const props = defineProps<{
@@ -63,10 +64,10 @@ function computePoints(): void {
     });
     const hasNaN = result.points.some(
       (item) =>
-        Number.isNaN(item.xPct) ||
-        Number.isNaN(item.yPct) ||
-        Number.isNaN(item.wPct) ||
-        Number.isNaN(item.hPct)
+        Number.isNaN(item.x) ||
+        Number.isNaN(item.y) ||
+        Number.isNaN(item.w) ||
+        Number.isNaN(item.h)
     );
     if (hasNaN) {
       emit("pointsChange", []);

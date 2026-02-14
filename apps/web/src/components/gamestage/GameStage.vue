@@ -10,60 +10,40 @@ import { useRoomStore } from "../../stores/roomStore";
 import { debugState, setLayoutDebug, setRuntimeError, setStageDebug } from "../../debug/debugStore";
 
 interface RoutePoint {
-  xPct: number;
-  yPct: number;
+  x: number;
+  y: number;
   angle: number;
-  wPct: number;
-  hPct: number;
+  w: number;
+  h: number;
   isCorner: boolean;
+  side: "top" | "right" | "bottom" | "left";
 }
 
-function buildFallbackRoutePoints(count: number): RoutePoint[] {
-  if (count <= 0) {
+function buildFallbackRoutePoints(count: number, width: number, height: number): RoutePoint[] {
+  if (count <= 0 || width <= 0 || height <= 0) {
     return [];
   }
   const points: RoutePoint[] = [];
+  const left = width * 0.1;
+  const right = width * 0.9;
+  const top = height * 0.1;
+  const bottom = height * 0.9;
+  const edgeStepX = (right - left) / 9;
+  const edgeStepY = (bottom - top) / 9;
   for (let i = 0; i < count; i += 1) {
     const side = Math.floor(i / 10);
     const slot = i % 10;
     const isCorner = slot === 0;
-    const edgeStep = 80 / 9;
+    const w = isCorner ? 92 : 74;
+    const h = isCorner ? 92 : 74;
     if (side === 0) {
-      points.push({
-        xPct: isCorner ? 10 : 10 + slot * edgeStep,
-        yPct: 10,
-        angle: 0,
-        wPct: isCorner ? 12 : 8,
-        hPct: isCorner ? 12 : 8,
-        isCorner
-      });
+      points.push({ x: isCorner ? left : left + slot * edgeStepX, y: top, angle: 0, w, h, isCorner, side: "top" });
     } else if (side === 1) {
-      points.push({
-        xPct: 90,
-        yPct: isCorner ? 10 : 10 + slot * edgeStep,
-        angle: 90,
-        wPct: isCorner ? 12 : 8,
-        hPct: isCorner ? 12 : 8,
-        isCorner
-      });
+      points.push({ x: right, y: isCorner ? top : top + slot * edgeStepY, angle: 90, w, h, isCorner, side: "right" });
     } else if (side === 2) {
-      points.push({
-        xPct: isCorner ? 90 : 90 - slot * edgeStep,
-        yPct: 90,
-        angle: 180,
-        wPct: isCorner ? 12 : 8,
-        hPct: isCorner ? 12 : 8,
-        isCorner
-      });
+      points.push({ x: isCorner ? right : right - slot * edgeStepX, y: bottom, angle: 180, w, h, isCorner, side: "bottom" });
     } else {
-      points.push({
-        xPct: 10,
-        yPct: isCorner ? 90 : 90 - slot * edgeStep,
-        angle: 270,
-        wPct: isCorner ? 12 : 8,
-        hPct: isCorner ? 12 : 8,
-        isCorner
-      });
+      points.push({ x: left, y: isCorner ? bottom : bottom - slot * edgeStepY, angle: 270, w, h, isCorner, side: "left" });
     }
   }
   return points;
@@ -85,9 +65,11 @@ const stageReady = computed(() => stageRect.value.width >= 300 && stageRect.valu
 const tiles = computed(() => roomStore.tilesToRender);
 const hasValidLayout = computed(() => layoutStatus.value.rendered && routePoints.value.length === tiles.value.length);
 const renderPoints = computed(() =>
-  hasValidLayout.value ? routePoints.value : buildFallbackRoutePoints(tiles.value.length)
+  hasValidLayout.value
+    ? routePoints.value
+    : buildFallbackRoutePoints(tiles.value.length, stageRect.value.width, stageRect.value.height)
 );
-const tilesRenderable = computed(() => tiles.value.length > 0);
+const tilesRenderable = computed(() => tiles.value.length > 0 && renderPoints.value.length === tiles.value.length);
 const tilesInvalid = computed(() => debugState.enabled && tiles.value.length !== 40);
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
@@ -95,6 +77,9 @@ let errorHandler: ((event: ErrorEvent) => void) | null = null;
 
 function onPointsChange(points: RoutePoint[]): void {
   routePoints.value = points;
+  if (debugState.enabled && points.length >= 4) {
+    console.log("[TILES_PREVIEW]", points.slice(0, 4).map((item, idx) => ({ idx, ...item })));
+  }
 }
 
 function onTileScaleChange(_scale: number): void {
@@ -200,11 +185,12 @@ onMounted(() => {
         window.cancelAnimationFrame(resizeRaf);
       }
       resizeRaf = window.requestAnimationFrame(() => {
-        stageRect.value = {
+        const next = {
           width: Math.floor(entry.contentRect.width),
           height: Math.floor(entry.contentRect.height)
         };
-        setStageDebug(stageRect.value.width, stageRect.value.height);
+        stageRect.value = next;
+        setStageDebug(next.width, next.height);
       });
     });
     resizeObserver.observe(stageRef.value);
@@ -253,7 +239,7 @@ watch(
 </script>
 
 <template>
-  <section ref="stageRef" class="game-stage">
+  <section ref="stageRef" class="game-stage" :class="{ debug: debugState.enabled }">
     <BoardRoute
       :tile-count="tiles.length"
       :stage-width="stageRect.width"
@@ -263,22 +249,24 @@ watch(
       @layout-status-change="onLayoutStatusChange"
     />
 
-    <TileNode
-      v-for="(tile, index) in tilesRenderable ? tiles : []"
-      :key="tile.id"
-      :tile-index="index"
-      :tile="tile"
-      :point="renderPoints[index] ?? { xPct: 50, yPct: 50, angle: 0, wPct: 10, hPct: 10, isCorner: false }"
-      :width-pct="renderPoints[index]?.wPct ?? 10"
-      :height-pct="renderPoints[index]?.hPct ?? 10"
-      :is-corner="renderPoints[index]?.isCorner ?? false"
-      :owner-character-id="ownerCharacterByIndex[index] ?? null"
-      :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
-      :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
-      :selected="selectedTileIndex === index"
-      :occupants="occupantMap.get(index) ?? []"
-      @select="handleSelectTile"
-    />
+    <div class="tiles-layer">
+      <TileNode
+        v-for="(tile, index) in tilesRenderable ? tiles : []"
+        :key="tile.id"
+        :tile-index="index"
+        :tile="tile"
+        :point="renderPoints[index] ?? { x: stageRect.width / 2, y: stageRect.height / 2, angle: 0, w: 80, h: 80, isCorner: false, side: 'top' }"
+        :width-px="renderPoints[index]?.w ?? 80"
+        :height-px="renderPoints[index]?.h ?? 80"
+        :is-corner="renderPoints[index]?.isCorner ?? false"
+        :owner-character-id="ownerCharacterByIndex[index] ?? null"
+        :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
+        :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
+        :selected="selectedTileIndex === index"
+        :occupants="occupantMap.get(index) ?? []"
+        @select="handleSelectTile"
+      />
+    </div>
 
     <div class="dice-anchor">
       <DiceButton :disabled="!roomStore.canRoll" @roll="handleRollClick" />
@@ -310,6 +298,12 @@ watch(
   overflow: hidden;
   background: linear-gradient(170deg, #e0f2fe 0%, #bae6fd 55%, #93c5fd 100%);
 }
+.game-stage.debug {
+  outline: 2px dashed #ef4444;
+}
+.game-stage.debug :deep(.tile-node) {
+  outline: 1px solid rgba(239, 68, 68, 0.7);
+}
 .game-stage::after {
   content: "";
   position: absolute;
@@ -330,6 +324,11 @@ watch(
 .game-stage > * {
   position: relative;
   z-index: 1;
+}
+.tiles-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
 }
 .dice-anchor {
   position: absolute;

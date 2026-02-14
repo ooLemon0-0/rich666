@@ -6,12 +6,13 @@ import { getCharacterColor } from "../../game/characters/characterPalette";
 import TokenAvatar from "./TokenAvatar.vue";
 
 interface RoutePoint {
-  xPct: number;
-  yPct: number;
+  x: number;
+  y: number;
   angle: number;
-  wPct: number;
-  hPct: number;
+  w: number;
+  h: number;
   isCorner: boolean;
+  side: "top" | "right" | "bottom" | "left";
 }
 
 const props = defineProps<{
@@ -19,8 +20,8 @@ const props = defineProps<{
   tile: BoardTileConfig;
   point: RoutePoint;
   ownerCharacterId: string | null;
-  widthPct: number;
-  heightPct: number;
+  widthPx: number;
+  heightPx: number;
   runtimePrice?: number | null;
   runtimeRent?: number | null;
   isCorner?: boolean;
@@ -72,10 +73,10 @@ function handleClick(): void {
     class="tile-node"
     :class="[tile.type, { selected: props.selected, corner: props.isCorner, unowned: !ownerCharacterId }]"
     :style="{
-      left: `${point.xPct}%`,
-      top: `${point.yPct}%`,
-      '--tile-w': `${props.widthPct}%`,
-      '--tile-h': `${props.heightPct}%`,
+      left: `${point.x}px`,
+      top: `${point.y}px`,
+      '--tile-w': `${props.widthPx}px`,
+      '--tile-h': `${props.heightPx}px`,
       '--owner-color': ownerColor,
       '--base-rotate': `${point.angle}deg`,
       '--extra-rotate': props.selected ? `${ROTATE_OFFSET_DEG}deg` : '0deg'
