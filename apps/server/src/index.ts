@@ -427,6 +427,10 @@ io.on("connection", (socket) => {
   socket.on("room_select_character", (payload, ack: (result: RoomActionResult) => void) => {
     const roomId = payload.roomId.trim().toUpperCase();
     const characterId = payload.characterId.trim();
+    app.log.info(
+      { socketId: socket.id, roomId, playerId: socket.data.playerId, characterId },
+      "room_select_character received"
+    );
     if (!roomId || !characterId) {
       ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 和 characterId 不能为空"));
       return;
@@ -445,11 +449,19 @@ io.on("connection", (socket) => {
       } else if (result.code === "ERR_INVALID_ACTION") {
         error = invalidAction("当前不能选择角色");
       }
+      app.log.warn(
+        { socketId: socket.id, roomId, playerId: socket.data.playerId, characterId, code: result.code },
+        "room_select_character rejected"
+      );
       ackAndEmitError<RoomActionResult>(socket.id, ack, error);
       return;
     }
     ack(result.result);
     emitRoomState(roomId, result.state);
+    app.log.info(
+      { socketId: socket.id, roomId, playerId: result.result.playerId, characterId },
+      "room_select_character applied"
+    );
   });
 
   socket.on("room_toggle_ready", (payload, ack: (result: RoomActionResult) => void) => {

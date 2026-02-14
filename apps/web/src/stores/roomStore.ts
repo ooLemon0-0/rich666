@@ -23,6 +23,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const showJoinModal = ref(false);
   const showCharacterModal = ref(false);
   const localError = ref("");
+  const connectionLastError = ref("");
   const actionPending = ref(false);
   const rollingPending = ref(false);
   const tradePending = ref(false);
@@ -35,10 +36,14 @@ export const useRoomStore = defineStore("room_ui", () => {
   });
   socketClient.subscribeConnection((status) => {
     connectionStatus.value = status;
+    if (status === "connected") {
+      connectionLastError.value = "";
+    }
   });
   socketClient.subscribeError((socketError) => {
     localError.value = socketError.message;
     lastJoinErrorCode.value = socketError.code;
+    connectionLastError.value = socketError.message;
   });
   socketClient.subscribeDiceRolled((payload) => {
     diceSeq += 1;
@@ -106,7 +111,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     if (connectionStatus.value === "connecting") {
       return "正在连接服务器...";
     }
-    return "连接断开";
+    return connectionLastError.value ? `连接断开：${connectionLastError.value}` : "连接断开";
   });
 
   const currentTurnPlayerId = computed(() => roomState.value?.currentTurnPlayerId ?? null);
@@ -219,11 +224,27 @@ export const useRoomStore = defineStore("room_ui", () => {
       localError.value = "当前不在房间内";
       return false;
     }
+    if (connectionStatus.value !== "connected") {
+      localError.value = "连接未就绪，请稍后重试";
+      return false;
+    }
     actionPending.value = true;
     const result = await socketClient.selectCharacter(roomId.value, characterId);
     actionPending.value = false;
     if (!result.ok) {
-      localError.value = result.message;
+      if (result.code === "CHAR_TAKEN") {
+        localError.value = "该角色刚刚被其他玩家选择，请选择其它角色";
+      } else if (result.code === "ROOM_NOT_FOUND") {
+        localError.value = "房间不存在";
+      } else if (result.code === "ROOM_MISMATCH") {
+        localError.value = "你当前不在该房间";
+      } else if (result.code === "SOCKET_DISCONNECTED") {
+        localError.value = "连接未就绪，请稍后重试";
+      } else if (result.code === "TIMEOUT") {
+        localError.value = "请求超时，请检查网络或重试";
+      } else {
+        localError.value = result.message;
+      }
       return false;
     }
     localError.value = "";
@@ -356,6 +377,8 @@ export const useRoomStore = defineStore("room_ui", () => {
     canSkipBuy,
     canStart,
     connectionHint,
+    connectionLastError,
+    connectionStatus,
     currentTile,
     currentTurnPlayerId,
     entryErrorDesc,

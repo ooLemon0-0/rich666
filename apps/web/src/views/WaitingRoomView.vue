@@ -49,6 +49,7 @@ async function onConfirmCharacter(characterId: string): Promise<void> {
       :selected-id="roomStore.selectedCharacterId"
       :taken-by-others="roomStore.takenCharacterIdsByOthers"
       :submit-error="roomStore.localError"
+      :connection-status="roomStore.connectionStatus"
       @confirm="onConfirmCharacter"
       @close="roomStore.closeCharacterModalIfSelected"
     />

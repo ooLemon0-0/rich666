@@ -8,6 +8,7 @@ const props = defineProps<{
   selectedId: string | null;
   takenByOthers: string[];
   submitError?: string;
+  connectionStatus?: "connected" | "connecting" | "disconnected";
 }>();
 
 const emit = defineEmits<{
@@ -39,6 +40,10 @@ function showBlockedHint(): void {
 }
 
 function handleConfirm(): void {
+  if (props.connectionStatus && props.connectionStatus !== "connected") {
+    blockedHint.value = "连接未就绪，请稍后重试";
+    return;
+  }
   if (!pendingSelectedId.value) {
     blockedHint.value = "请先选择角色";
     return;
@@ -73,6 +78,7 @@ function handleConfirm(): void {
         </div>
         <footer class="foot">
           <p class="tip">{{ blockedHint || props.submitError || (pendingSelectedId ? "已选择角色，可确认" : "请先选择角色") }}</p>
+          <p v-if="connectionStatus" class="conn-line">连接状态：{{ connectionStatus }}</p>
           <button type="button" :disabled="!pendingSelectedId" @click="handleConfirm">确认选择</button>
         </footer>
       </section>
@@ -157,6 +163,12 @@ function handleConfirm(): void {
   margin-right: auto;
   color: #4338ca;
   font-weight: 600;
+}
+
+.conn-line {
+  margin: 0 10px 0 0;
+  color: #64748b;
+  font-size: 12px;
 }
 
 button {

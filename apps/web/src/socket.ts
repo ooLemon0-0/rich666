@@ -61,7 +61,7 @@ interface SocketClient {
   rollRequest: (roomId: string) => Promise<RollRequestResult>;
   buyRequest: (roomId: string) => Promise<TradeActionResult>;
   skipBuy: (roomId: string) => Promise<TradeActionResult>;
-  selectCharacter: (roomId: string, characterId: string) => Promise<RoomActionResult>;
+  selectCharacter: (roomId: string, characterId: string) => Promise<ClientRoomActionResult>;
   toggleReady: (roomId: string) => Promise<RoomActionResult>;
   startGame: (roomId: string) => Promise<RoomActionResult>;
   setSession: (session: SessionSnapshot) => void;
@@ -73,6 +73,14 @@ interface SocketClient {
   subscribeConnection: (handler: ConnectionHandler) => () => void;
   getStatus: () => ConnectionStatus;
 }
+
+interface ClientActionError {
+  ok: false;
+  code: "SOCKET_DISCONNECTED" | "TIMEOUT";
+  message: string;
+}
+
+export type ClientRoomActionResult = RoomActionResult | ClientActionError;
 
 let socketInstance: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 let status: ConnectionStatus = "disconnected";
@@ -199,6 +207,31 @@ function withAck<T>(runner: (ack: (result: T) => void) => void): Promise<T> {
   });
 }
 
+function withAckTimeout<T>(
+  runner: (ack: (result: T) => void) => void,
+  timeoutMs: number,
+  timeoutResult: T
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(timeoutResult);
+    }, timeoutMs);
+    runner((result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(result);
+    });
+  });
+}
+
 export function createSocketClient(): SocketClient {
   return {
     connect() {
@@ -249,9 +282,24 @@ export function createSocketClient(): SocketClient {
     },
     selectCharacter(roomId, characterId) {
       const socket = getSocket();
-      return withAck<RoomActionResult>((ack) => {
-        socket.emit("room_select_character", { roomId, characterId }, ack);
-      });
+      if (!socket.connected) {
+        return Promise.resolve({
+          ok: false,
+          code: "SOCKET_DISCONNECTED",
+          message: "连接未就绪，请稍后重试"
+        } as ClientRoomActionResult);
+      }
+      return withAckTimeout<ClientRoomActionResult>(
+        (ack) => {
+          socket.emit("room_select_character", { roomId, characterId }, ack);
+        },
+        4500,
+        {
+          ok: false,
+          code: "TIMEOUT",
+          message: "请求超时，请检查网络或重试"
+        }
+      );
     },
     toggleReady(roomId) {
       const socket = getSocket();
