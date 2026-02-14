@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import BoardRoute from "./BoardRoute.vue";
+import BoardCenterDecor from "./BoardCenterDecor.vue";
 import DiceButton from "./DiceButton.vue";
 import DiceOverlay from "./DiceOverlay.vue";
 import TileNode from "./TileNode.vue";
@@ -13,6 +14,9 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
+  width: number;
+  height: number;
+  isCorner: boolean;
 }
 
 const roomStore = useRoomStore();
@@ -115,13 +119,14 @@ onBeforeUnmount(() => {
 <template>
   <section class="game-stage">
     <BoardRoute :tile-count="tiles.length" @points-change="onPointsChange" @tile-scale-change="onTileScaleChange" />
+    <BoardCenterDecor />
 
     <TileNode
       v-for="(tile, index) in tiles"
       :key="tile.id"
       :tile-index="index"
       :tile="tile"
-      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0 }"
+      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, width: 104, height: 104, isCorner: false }"
       :scale="tileScale"
       :owner-character-id="ownerCharacterByIndex[index] ?? null"
       :selected="selectedTileIndex === index"
@@ -146,12 +151,13 @@ onBeforeUnmount(() => {
 <style scoped>
 .game-stage {
   position: relative;
-  min-height: 640px;
+  min-height: 760px;
   border-radius: 18px;
   border: 2px solid rgba(186, 230, 253, 0.9);
   overflow: hidden;
   background:
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.38), transparent 42%),
-    linear-gradient(170deg, #e0f2fe 0%, #bae6fd 52%, #93c5fd 100%);
+    radial-gradient(circle at 22% 24%, rgba(255, 255, 255, 0.42), transparent 44%),
+    radial-gradient(circle at 78% 76%, rgba(219, 234, 254, 0.34), transparent 46%),
+    linear-gradient(165deg, #dbeafe 0%, #bfdbfe 45%, #93c5fd 100%);
 }
 </style>

@@ -16,6 +16,7 @@ import {
 
 interface RoomRecord {
   state: RoomState;
+  lastActivityAt: number;
 }
 
 interface PlayerRef {
@@ -99,6 +100,8 @@ const socketToSpectator = new Map<string, SpectatorRef>();
 const playerToSocket = new Map<string, string>();
 const spectatorToSocket = new Map<string, string>();
 const ROOM_SIZE_LIMIT = 6;
+const ROOM_EMPTY_GRACE_MS = 60_000;
+const roomDestroyTimers = new Map<RoomId, ReturnType<typeof setTimeout>>();
 
 function randomId(length = 6): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -131,6 +134,72 @@ function generateUniqueRoomId(): RoomId {
     roomId = randomId();
   }
   return roomId;
+}
+
+function touchRoom(record: RoomRecord): void {
+  record.lastActivityAt = Date.now();
+}
+
+function clearDestroyTimer(roomId: RoomId): void {
+  const timer = roomDestroyTimers.get(roomId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  roomDestroyTimers.delete(roomId);
+}
+
+function destroyRoom(roomId: RoomId, reason: "empty" | "grace_timeout"): void {
+  const record = rooms.get(roomId);
+  if (!record) {
+    return;
+  }
+  clearDestroyTimer(roomId);
+  record.state.players.forEach((player) => {
+    playerToSocket.delete(roomPlayerKey(roomId, player.playerId));
+  });
+  record.state.spectators.forEach((spectator) => {
+    spectatorToSocket.delete(roomSpectatorKey(roomId, spectator.spectatorId));
+  });
+  rooms.delete(roomId);
+  console.info("[ROOM] destroyed", { roomId, reason });
+}
+
+function maybeDestroyRoom(roomId: RoomId): void {
+  const record = rooms.get(roomId);
+  if (!record) {
+    clearDestroyTimer(roomId);
+    return;
+  }
+  const activePlayers = record.state.players.filter((item) => item.status === "active" && item.connected).length;
+  const disconnectedPlayers = record.state.players.filter((item) => item.status === "disconnected").length;
+  const connectedSpectators = record.state.spectators.filter((item) => item.connected).length;
+
+  if (activePlayers > 0 || connectedSpectators > 0) {
+    clearDestroyTimer(roomId);
+    return;
+  }
+
+  if (disconnectedPlayers === 0) {
+    destroyRoom(roomId, "empty");
+    return;
+  }
+
+  const elapsed = Date.now() - record.lastActivityAt;
+  if (elapsed >= ROOM_EMPTY_GRACE_MS) {
+    destroyRoom(roomId, "grace_timeout");
+    return;
+  }
+
+  if (roomDestroyTimers.has(roomId)) {
+    return;
+  }
+  const timeoutMs = Math.max(500, ROOM_EMPTY_GRACE_MS - elapsed + 50);
+  const timer = setTimeout(() => {
+    roomDestroyTimers.delete(roomId);
+    maybeDestroyRoom(roomId);
+  }, timeoutMs);
+  roomDestroyTimers.set(roomId, timer);
 }
 
 function buildPlayer(playerId: PlayerId, nickname: string, playerToken: string): Player {
@@ -201,7 +270,7 @@ export function createRoom(socketId: string, nickname: string, playerToken: stri
     lastRoll: null
   };
 
-  rooms.set(roomId, { state });
+  rooms.set(roomId, { state, lastActivityAt: Date.now() });
   endedRooms.delete(roomId);
   socketToPlayer.set(socketId, { roomId, playerId: player.playerId });
   playerToSocket.set(roomPlayerKey(roomId, player.playerId), socketId);
@@ -231,6 +300,8 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
     existingPlayer.nickname = nickname;
     socketToPlayer.set(socketId, { roomId, playerId: existingPlayer.playerId });
     playerToSocket.set(roomPlayerKey(roomId, existingPlayer.playerId), socketId);
+    touchRoom(record);
+    maybeDestroyRoom(roomId);
     return { ok: true, state: record.state, role: "player", playerId: existingPlayer.playerId, reconnected: true };
   }
 
@@ -244,6 +315,8 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
     existingSpectator.nickname = nickname;
     socketToSpectator.set(socketId, { roomId, spectatorId: existingSpectator.spectatorId });
     spectatorToSocket.set(roomSpectatorKey(roomId, existingSpectator.spectatorId), socketId);
+    touchRoom(record);
+    maybeDestroyRoom(roomId);
     return {
       ok: true,
       state: record.state,
@@ -258,6 +331,8 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
     record.state.spectators.push(spectator);
     socketToSpectator.set(socketId, { roomId, spectatorId: spectator.spectatorId });
     spectatorToSocket.set(roomSpectatorKey(roomId, spectator.spectatorId), socketId);
+    touchRoom(record);
+    maybeDestroyRoom(roomId);
     return { ok: true, state: record.state, role: "spectator", playerId: spectator.spectatorId };
   }
 
@@ -273,6 +348,8 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
   }
   socketToPlayer.set(socketId, { roomId, playerId: player.playerId });
   playerToSocket.set(roomPlayerKey(roomId, player.playerId), socketId);
+  touchRoom(record);
+  maybeDestroyRoom(roomId);
   return { ok: true, state: record.state, role: "player", playerId: player.playerId };
 }
 
@@ -300,6 +377,8 @@ export function disconnectSocket(socketId: string): RoomState | null {
     if (spectator) {
       spectator.connected = false;
     }
+    touchRoom(spectatorRoom);
+    maybeDestroyRoom(spectatorRef.roomId);
     return spectatorRoom.state;
   }
 
@@ -331,6 +410,9 @@ export function disconnectSocket(socketId: string): RoomState | null {
       record.state.pendingBuyTileIndex = null;
     }
   }
+
+  touchRoom(record);
+  maybeDestroyRoom(playerRef.roomId);
 
   return record.state;
 }
@@ -432,6 +514,7 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   // Server-authoritative turn state machine:
   // every valid roll resolves and immediately advances to next turn.
   advanceTurn(record.state);
+  touchRoom(record);
 
   return {
     ok: true,
@@ -502,6 +585,10 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
   tile.ownerPlayerId = validation.player.playerId;
   tile.ownerCharacterId = validation.player.selectedCharacterId;
   advanceTurn(validation.state);
+  const buyRecord = rooms.get(roomId);
+  if (buyRecord) {
+    touchRoom(buyRecord);
+  }
 
   return {
     ok: true,
@@ -522,6 +609,10 @@ export function skipBuy(socketId: string, roomId: RoomId): TradeResult {
   }
 
   advanceTurn(validation.state);
+  const skipRecord = rooms.get(roomId);
+  if (skipRecord) {
+    touchRoom(skipRecord);
+  }
   return {
     ok: true,
     state: validation.state,
@@ -573,6 +664,8 @@ export function reconnectPlayer(
       record.state.currentTurnPlayerId = playerId;
     }
   }
+  touchRoom(record);
+  maybeDestroyRoom(roomId);
 
   return {
     ok: true,
@@ -631,6 +724,10 @@ export function selectCharacter(
   }
   entry.player.selectedCharacterId = nextCharacterId;
   entry.player.ready = false;
+  const selectRecord = rooms.get(roomId);
+  if (selectRecord) {
+    touchRoom(selectRecord);
+  }
   return {
     ok: true,
     state: entry.state,
@@ -655,6 +752,10 @@ export function toggleReady(socketId: string, roomId: RoomId): RoomActionResult 
     return { ok: false, code: "ERR_INVALID_ACTION" };
   }
   entry.player.ready = !entry.player.ready;
+  const readyRecord = rooms.get(roomId);
+  if (readyRecord) {
+    touchRoom(readyRecord);
+  }
   return {
     ok: true,
     state: entry.state,
@@ -691,6 +792,10 @@ export function startGame(socketId: string, roomId: RoomId): RoomActionResult {
     entry.state.currentTurnPlayerId = connectedPlayers[0].playerId;
   }
   entry.state.pendingBuyTileIndex = null;
+  const startRecord = rooms.get(roomId);
+  if (startRecord) {
+    touchRoom(startRecord);
+  }
   return {
     ok: true,
     state: entry.state,
@@ -718,6 +823,11 @@ export function leaveRoom(socketId: string, roomId: RoomId, playerToken: string)
   entry.player.status = "left";
   entry.player.connected = false;
   entry.player.ready = false;
+  socketToPlayer.delete(socketId);
+  const playerKey = roomPlayerKey(roomId, entry.player.playerId);
+  if (playerToSocket.get(playerKey) === socketId) {
+    playerToSocket.delete(playerKey);
+  }
 
   if (entry.state.hostPlayerId === entry.player.playerId) {
     const nextHost = entry.state.players.find((item) => item.status !== "left");
@@ -726,6 +836,11 @@ export function leaveRoom(socketId: string, roomId: RoomId, playerToken: string)
 
   if (entry.state.currentTurnPlayerId === entry.player.playerId) {
     advanceTurn(entry.state);
+  }
+  const leaveRecord = rooms.get(roomId);
+  if (leaveRecord) {
+    touchRoom(leaveRecord);
+    maybeDestroyRoom(roomId);
   }
 
   return {

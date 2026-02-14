@@ -34,15 +34,15 @@ const roomStore = useRoomStore();
 .player-bar {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 .player-card {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 12px;
+  gap: 10px;
+  padding: 10px 10px 9px;
+  border-radius: 14px;
   border: 1px solid rgba(191, 219, 254, 0.8);
   background: rgba(255, 255, 255, 0.86);
 }
@@ -53,11 +53,12 @@ const roomStore = useRoomStore();
     0 0 18px rgba(96, 165, 250, 0.24);
 }
 .avatar {
-  width: 34px;
-  height: 34px;
+  width: 52px;
+  height: 52px;
   border-radius: 999px;
   object-fit: cover;
-  border: 1px solid rgba(30, 64, 175, 0.28);
+  border: 2px solid rgba(30, 64, 175, 0.3);
+  box-shadow: 0 4px 10px rgba(30, 64, 175, 0.18);
 }
 .meta {
   min-width: 0;
@@ -68,7 +69,7 @@ const roomStore = useRoomStore();
   line-height: 1.2;
 }
 .name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   color: #0f172a;
   white-space: nowrap;
@@ -76,7 +77,7 @@ const roomStore = useRoomStore();
   text-overflow: ellipsis;
 }
 .cash {
-  font-size: 12px;
+  font-size: 13px;
   color: #475569;
 }
 .self-tag {
@@ -114,6 +115,10 @@ const roomStore = useRoomStore();
 @media (max-width: 1024px) {
   .player-bar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .avatar {
+    width: 46px;
+    height: 46px;
   }
 }
 </style>

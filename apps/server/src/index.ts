@@ -490,6 +490,9 @@ io.on("connection", (socket) => {
       return;
     }
     ack(result.result);
+    socket.leave(roomId);
+    socket.data.roomId = undefined;
+    socket.data.playerId = undefined;
     emitRoomState(roomId, result.state);
   });
 
