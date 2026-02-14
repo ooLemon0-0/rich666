@@ -33,7 +33,7 @@ function getOrCreatePlayerToken(): string {
 }
 
 function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTileConfig[] {
-  return payload.tiles.map((tile) => {
+  return payload.tiles.map((tile, index) => {
     if (tile.kind === "special") {
       return {
         id: tile.tileId,
@@ -42,13 +42,18 @@ function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTil
         icon: "✨"
       };
     }
+    const localTile = BOARD_TILES[index];
+    const localProperty = localTile && localTile.type === "property" ? localTile : null;
+    if (!localProperty) {
+      console.error("[TILE_BAD_ZHOU]", { index, tileId: tile.tileId, name: tile.name });
+    }
     return {
       id: tile.tileId,
       type: "property",
       nameZh: tile.name,
-      zhouKey: "豫",
-      zhouName: "中原",
-      tagIcon: "豫",
+      zhouKey: localProperty?.zhouKey ?? "豫",
+      zhouName: localProperty?.zhouName ?? "豫州",
+      tagIcon: localProperty?.tagIcon ?? "豫",
       setBonusRentMul: 1.2,
       price: tile.price,
       toll: tile.rent,

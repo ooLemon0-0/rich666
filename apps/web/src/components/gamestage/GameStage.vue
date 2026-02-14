@@ -295,56 +295,62 @@ watch(
 
 <template>
   <section ref="stageRef" class="game-stage" :class="{ debug: debugState.enabled }">
-    <BoardRoute
-      :tile-count="tiles.length"
-      :stage-width="stageRect.width"
-      :stage-height="stageRect.height"
-      @points-change="onPointsChange"
-      @tile-scale-change="onTileScaleChange"
-      @layout-status-change="onLayoutStatusChange"
-    />
-
-    <div class="tiles-layer">
-      <TileNode
-        v-for="(tile, index) in tilesRenderable ? tiles : []"
-        :key="tile.id"
-        :tile-index="index"
-        :tile="tile"
-        :point="renderPoints[index] ?? { x: stageRect.width / 2, y: stageRect.height / 2, angle: 0, w: 80, h: 80, isCorner: false, side: 'top' }"
-        :width-px="renderPoints[index]?.w ?? 80"
-        :height-px="renderPoints[index]?.h ?? 80"
-        :is-corner="renderPoints[index]?.isCorner ?? false"
-        :owner-character-id="ownerCharacterByIndex[index] ?? null"
-        :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
-        :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
-        :selected="selectedTileIndex === index"
-        :debug-overlap="overlapTileIndexes.has(index)"
-        :occupants="occupantMap.get(index) ?? []"
-        @select="handleSelectTile"
+    <div class="board-layer">
+      <BoardRoute
+        :tile-count="tiles.length"
+        :stage-width="stageRect.width"
+        :stage-height="stageRect.height"
+        @points-change="onPointsChange"
+        @tile-scale-change="onTileScaleChange"
+        @layout-status-change="onLayoutStatusChange"
       />
+
+      <div class="tiles-layer">
+        <TileNode
+          v-for="(tile, index) in tilesRenderable ? tiles : []"
+          :key="tile.id"
+          :tile-index="index"
+          :tile="tile"
+          :point="renderPoints[index] ?? { x: stageRect.width / 2, y: stageRect.height / 2, angle: 0, w: 80, h: 80, isCorner: false, side: 'top' }"
+          :width-px="renderPoints[index]?.w ?? 80"
+          :height-px="renderPoints[index]?.h ?? 80"
+          :is-corner="renderPoints[index]?.isCorner ?? false"
+          :owner-character-id="ownerCharacterByIndex[index] ?? null"
+          :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
+          :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
+          :selected="selectedTileIndex === index"
+          :debug-overlap="overlapTileIndexes.has(index)"
+          :occupants="occupantMap.get(index) ?? []"
+          @select="handleSelectTile"
+        />
+      </div>
     </div>
 
-    <div class="dice-anchor">
-      <DiceButton :disabled="!roomStore.canRoll" @roll="handleRollClick" />
+    <div class="overlay-layer">
+      <DiceOverlay :event="roomStore.diceRolledEvent" />
+      <div class="dice-anchor">
+        <DiceButton :disabled="!roomStore.canRoll" @roll="handleRollClick" />
+      </div>
+      <div class="modal-slot">
+        <TileDetailModal
+          :open="selectedTileIndex !== null"
+          :tile="selectedPropertyTile"
+          :owner-character-id="selectedOwnerCharacterId"
+          :can-buy="canBuySelectedTile"
+          :buying="roomStore.tradePending"
+          @close="closeTileModal"
+          @buy="handleBuySelectedTile"
+        />
+        <LandingActionModal
+          :payload="roomStore.currentLanding"
+          :pending="roomStore.tradePending"
+          :is-self-turn="roomStore.currentTurnPlayerId === roomStore.playerId"
+          @confirm="handleLandingConfirm"
+          @cancel="handleLandingCancel"
+          @close="roomStore.shiftLanding"
+        />
+      </div>
     </div>
-    <DiceOverlay :event="roomStore.diceRolledEvent" />
-    <TileDetailModal
-      :open="selectedTileIndex !== null"
-      :tile="selectedPropertyTile"
-      :owner-character-id="selectedOwnerCharacterId"
-      :can-buy="canBuySelectedTile"
-      :buying="roomStore.tradePending"
-      @close="closeTileModal"
-      @buy="handleBuySelectedTile"
-    />
-    <LandingActionModal
-      :payload="roomStore.currentLanding"
-      :pending="roomStore.tradePending"
-      :is-self-turn="roomStore.currentTurnPlayerId === roomStore.playerId"
-      @confirm="handleLandingConfirm"
-      @cancel="handleLandingCancel"
-      @close="roomStore.shiftLanding"
-    />
     <div v-if="!tilesRenderable" class="board-loading">Loading board...</div>
     <div v-if="tilesInvalid" class="tiles-invalid">Tiles invalid: {{ tiles.length }}</div>
   </section>
@@ -389,16 +395,33 @@ watch(
   position: relative;
   z-index: 1;
 }
+.board-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
 .tiles-layer {
   position: absolute;
   inset: 0;
   z-index: 10;
 }
+.overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
 .dice-anchor {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
-  z-index: 30;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 35;
+  pointer-events: auto;
+}
+.modal-slot {
+  position: absolute;
+  inset: 0;
   pointer-events: auto;
 }
 .board-loading {

@@ -94,7 +94,7 @@ function handleClick(): void {
       </span>
     </div>
     <div class="inner" :style="{ transform: `rotate(${-point.angle}deg)` }">
-      <span v-if="tile.type === 'property'" class="zhou">{{ tile.tagIcon }}</span>
+      <span v-if="tile.type === 'property'" class="zhou-badge">{{ tile.tagIcon }}</span>
       <span v-else class="special-icon">{{ tile.icon }}</span>
       <span :class="nameClass">{{ tile.nameZh }}</span>
       <span v-if="tile.type === 'property'" class="amount" :class="{ rent: !!ownerCharacterId }">{{ amountLabel }}</span>
@@ -197,11 +197,11 @@ function handleClick(): void {
   height: 100%;
   object-fit: cover;
 }
-.zhou,
+.zhou-badge,
 .special-icon {
   position: absolute;
-  top: 4px;
-  left: 4px;
+  top: -2px;
+  left: -2px;
   width: 18px;
   height: 18px;
   border-radius: 999px;
@@ -210,7 +210,7 @@ function handleClick(): void {
   font-size: 11px;
   font-weight: 800;
 }
-.zhou {
+.zhou-badge {
   background: #dbeafe;
   color: #1d4ed8;
 }
@@ -246,16 +246,17 @@ function handleClick(): void {
 }
 .amount {
   margin-top: 2px;
-  border-radius: 999px;
-  padding: 2px 8px;
+  padding: 0;
   font-size: 11px;
   font-weight: 800;
   color: #92400e;
-  background: rgba(254, 243, 199, 0.92);
+  background: transparent;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82),
+    0 2px 6px rgba(15, 23, 42, 0.2);
 }
 .amount.rent {
   color: #155e75;
-  background: rgba(207, 250, 254, 0.94);
 }
 .tokens {
   position: absolute;
