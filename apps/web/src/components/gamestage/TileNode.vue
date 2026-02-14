@@ -26,6 +26,7 @@ const props = defineProps<{
   runtimeRent?: number | null;
   isCorner?: boolean;
   selected?: boolean;
+  debugOverlap?: boolean;
   occupants: Array<{ playerId: string; avatarUrl: string; color: string }>;
 }>();
 
@@ -71,7 +72,7 @@ function handleClick(): void {
 <template>
   <article
     class="tile-node"
-    :class="[tile.type, { selected: props.selected, corner: props.isCorner, unowned: !ownerCharacterId }]"
+    :class="[tile.type, { selected: props.selected, corner: props.isCorner, unowned: !ownerCharacterId, 'debug-overlap': props.debugOverlap }]"
     :style="{
       left: `${point.x}px`,
       top: `${point.y}px`,
@@ -127,6 +128,10 @@ function handleClick(): void {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: hidden;
   cursor: pointer;
+}
+.tile-node.debug-overlap {
+  outline: 2px solid #ef4444;
+  outline-offset: -2px;
 }
 .tile-node:hover {
   transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + 2deg)) scale(1.04);
@@ -215,7 +220,7 @@ function handleClick(): void {
 .name {
   margin-top: 14px;
   font-family: var(--font-game-cartoon, "Comic Sans MS", "PingFang SC", "Microsoft YaHei", sans-serif);
-  font-size: 18px;
+  font-size: clamp(12px, 1.1vw, 14px);
   font-weight: 800;
   color: #0f172a;
   line-height: 1.05;
@@ -231,19 +236,19 @@ function handleClick(): void {
     0 2px 6px rgba(15, 23, 42, 0.22);
 }
 .name.long {
-  font-size: 15px;
+  font-size: clamp(11px, 1vw, 13px);
 }
 .tile-node.corner .name {
-  font-size: 20px;
+  font-size: clamp(13px, 1.2vw, 16px);
 }
 .tile-node.corner .name.long {
-  font-size: 16px;
+  font-size: clamp(12px, 1.05vw, 14px);
 }
 .amount {
   margin-top: 2px;
   border-radius: 999px;
   padding: 2px 8px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   color: #92400e;
   background: rgba(254, 243, 199, 0.92);

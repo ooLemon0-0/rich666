@@ -129,6 +129,16 @@ export interface GameSystemEventPayload {
   roomId: RoomId;
   text: string;
 }
+export interface GameLandingResolvedPayload {
+  roomId: RoomId;
+  playerId: PlayerId;
+  heroId: string | null;
+  tileId: number;
+  tileType: "special" | "property";
+  action: "BUY_OFFER" | "PAY_RENT" | "UPGRADE_OFFER" | "SPECIAL_TRIGGER" | "NOOP";
+  amount?: number;
+  ownerHeroId?: string | null;
+}
 export interface GameStaticTileConfig {
   index: number;
   tileId: string;
@@ -194,6 +204,7 @@ export interface ServerToClientEvents {
   "room:state": (state: RoomState) => void;
   "game:diceRolled": (payload: DiceRolledPayload) => void;
   "game:systemEvent": (payload: GameSystemEventPayload) => void;
+  "game:landingResolved": (payload: GameLandingResolvedPayload) => void;
   "game:staticConfig": (payload: GameStaticConfigPayload) => void;
   error: (error: SocketErrorPayload) => void;
 }

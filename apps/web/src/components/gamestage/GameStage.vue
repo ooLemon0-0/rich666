@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BoardRoute from "./BoardRoute.vue";
 import DiceButton from "./DiceButton.vue";
 import DiceOverlay from "./DiceOverlay.vue";
+import LandingActionModal from "./LandingActionModal.vue";
 import TileNode from "./TileNode.vue";
 import TileDetailModal from "./TileDetailModal.vue";
 import { getCharacterVisual } from "../../game/characters/characters";
@@ -71,6 +72,7 @@ const renderPoints = computed(() =>
 );
 const tilesRenderable = computed(() => tiles.value.length > 0 && renderPoints.value.length === tiles.value.length);
 const tilesInvalid = computed(() => debugState.enabled && tiles.value.length !== 40);
+const overlapTileIndexes = ref<Set<number>>(new Set());
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
 let errorHandler: ((event: ErrorEvent) => void) | null = null;
@@ -155,6 +157,28 @@ async function handleBuySelectedTile(): Promise<void> {
   }
 }
 
+async function handleLandingConfirm(): Promise<void> {
+  const action = roomStore.currentLanding?.action;
+  if (!action) {
+    return;
+  }
+  if (action === "BUY_OFFER") {
+    await roomStore.buyCurrentTile();
+  }
+  roomStore.shiftLanding();
+}
+
+async function handleLandingCancel(): Promise<void> {
+  const action = roomStore.currentLanding?.action;
+  if (!action) {
+    return;
+  }
+  if (action === "BUY_OFFER") {
+    await roomStore.skipBuy();
+  }
+  roomStore.shiftLanding();
+}
+
 function handleSelectTile(tileIndex: number): void {
   const tile = tiles.value[tileIndex];
   if (tile?.type !== "property") {
@@ -236,6 +260,37 @@ watch(
   },
   { deep: true }
 );
+
+watch(
+  () => renderPoints.value.map((point) => ({ x: point.x, y: point.y, w: point.w, h: point.h })),
+  (boxes) => {
+    const overlaps = new Set<number>();
+    for (let i = 0; i < boxes.length; i += 1) {
+      const a = boxes[i];
+      const ax1 = a.x - a.w / 2;
+      const ay1 = a.y - a.h / 2;
+      const ax2 = a.x + a.w / 2;
+      const ay2 = a.y + a.h / 2;
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const b = boxes[j];
+        const bx1 = b.x - b.w / 2;
+        const by1 = b.y - b.h / 2;
+        const bx2 = b.x + b.w / 2;
+        const by2 = b.y + b.h / 2;
+        const hit = ax1 < bx2 - 2 && ax2 > bx1 + 2 && ay1 < by2 - 2 && ay2 > by1 + 2;
+        if (hit) {
+          overlaps.add(i);
+          overlaps.add(j);
+        }
+      }
+    }
+    overlapTileIndexes.value = overlaps;
+    if (overlaps.size > 0) {
+      console.error("[TILE_OVERLAP]", Array.from(overlaps.values()));
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <template>
@@ -263,6 +318,7 @@ watch(
         :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
         :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
         :selected="selectedTileIndex === index"
+        :debug-overlap="overlapTileIndexes.has(index)"
         :occupants="occupantMap.get(index) ?? []"
         @select="handleSelectTile"
       />
@@ -280,6 +336,14 @@ watch(
       :buying="roomStore.tradePending"
       @close="closeTileModal"
       @buy="handleBuySelectedTile"
+    />
+    <LandingActionModal
+      :payload="roomStore.currentLanding"
+      :pending="roomStore.tradePending"
+      :is-self-turn="roomStore.currentTurnPlayerId === roomStore.playerId"
+      @confirm="handleLandingConfirm"
+      @cancel="handleLandingCancel"
+      @close="roomStore.shiftLanding"
     />
     <div v-if="!tilesRenderable" class="board-loading">Loading board...</div>
     <div v-if="tilesInvalid" class="tiles-invalid">Tiles invalid: {{ tiles.length }}</div>

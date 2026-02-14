@@ -59,7 +59,7 @@ function special(id: string, nameZh: string, icon: string): SpecialTile {
   };
 }
 
-const ZHOU_ORDER: ZhouKey[] = ["雍", "梁", "荆", "扬", "徐", "青", "兖", "冀", "豫"];
+const ZHOU_ORDER: ZhouKey[] = ["冀", "兖", "青", "徐", "豫", "扬", "荆", "梁", "雍"];
 
 const propertyByZhou: Record<ZhouKey, Array<{ id: string; nameZh: string; zhouName: string }>> = {
   雍: [

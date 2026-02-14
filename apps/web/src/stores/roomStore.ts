@@ -1,6 +1,6 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import type { DiceRolledPayload, GameStaticConfigPayload, RoomState, SelfRole } from "@rich/shared";
+import type { DiceRolledPayload, GameLandingResolvedPayload, GameStaticConfigPayload, RoomState, SelfRole } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 import { getCharacterVisual } from "../game/characters/characters";
 import { BOARD_TILES, type BoardTileConfig } from "../game/board/boardConfig";
@@ -78,6 +78,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const lastJoinErrorCode = ref("");
   const diceRolledEvent = ref<{ seq: number; payload: DiceRolledPayload } | null>(null);
   const gameSystemEvent = ref<{ seq: number; text: string } | null>(null);
+  const landingQueue = ref<GameLandingResolvedPayload[]>([]);
   const systemMessages = ref<Array<{ id: number; text: string }>>([]);
   let diceSeq = 0;
   let systemSeq = 0;
@@ -131,8 +132,15 @@ export const useRoomStore = defineStore("room_ui", () => {
     gameSystemEvent.value = { seq: diceSeq, text: payload.text };
     pushSystemMessage(payload.text);
   });
+  socketClient.subscribeLandingResolved((payload) => {
+    landingQueue.value.push(payload);
+    if (landingQueue.value.length > 8) {
+      landingQueue.value = landingQueue.value.slice(-8);
+    }
+  });
 
   const roomId = computed(() => roomState.value?.roomId ?? "");
+  const currentLanding = computed(() => landingQueue.value[0] ?? null);
   const inRoom = computed(() => Boolean(roomState.value));
   const roomStatus = computed(() => roomState.value?.status ?? "waiting");
   const maxPlayers = 6;
@@ -436,7 +444,15 @@ export const useRoomStore = defineStore("room_ui", () => {
     tradePending.value = false;
     gameSystemEvent.value = null;
     systemMessages.value = [];
+    landingQueue.value = [];
     previousPlayers = new Map();
+  }
+
+  function shiftLanding(): void {
+    if (landingQueue.value.length === 0) {
+      return;
+    }
+    landingQueue.value.shift();
   }
 
   async function rollDice(): Promise<boolean> {
@@ -520,6 +536,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     rollingPending,
     diceRolledEvent,
     gameSystemEvent,
+    currentLanding,
     roomId,
     roomState,
     staticConfig,
@@ -547,6 +564,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     rollDice,
     selectCharacter,
     skipBuy,
+    shiftLanding,
     startGame,
     toggleReady,
     takenCharacterIdsByOthers,

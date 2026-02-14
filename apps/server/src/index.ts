@@ -8,6 +8,7 @@ import {
   type ClientToServerEvents,
   type CreateRoomPayload,
   type ErrorPayload,
+  type GameLandingResolvedPayload,
   type GameStaticConfigPayload,
   type InterServerEvents,
   type JoinRoomPayload,
@@ -376,6 +377,10 @@ io.on("connection", (socket) => {
       playerId: roll.result.playerId,
       value: roll.result.dice
     });
+    if (roll.landing) {
+      const landingPayload: GameLandingResolvedPayload = roll.landing;
+      io.to(roomId).emit("game:landingResolved", landingPayload);
+    }
     emitRoomState(roomId, roll.state);
     emitSystemEvents(roomId, roll.events);
     app.log.info(

@@ -1,5 +1,6 @@
 import {
   BOARD_SIZE,
+  type GameLandingResolvedPayload,
   type Player,
   type PlayerId,
   type SelfRole,
@@ -71,6 +72,7 @@ export interface RollResult {
   ok: boolean;
   state?: RoomState;
   result?: RollSuccessPayload;
+  landing?: GameLandingResolvedPayload;
   events?: string[];
   code?: RollFailureCode;
 }
@@ -516,11 +518,25 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   record.state.pendingBuyTileIndex = null;
 
   const landedTile = record.state.board[nextPosition];
+  const landedConfig = getTileConfig(nextPosition);
   const roleName = getRoleName(player);
   const tileName = getTileDisplayName(roomId, nextPosition);
+  let landing: GameLandingResolvedPayload = {
+    roomId,
+    playerId: player.playerId,
+    heroId: player.selectedCharacterId,
+    tileId: nextPosition,
+    tileType: "special",
+    action: "NOOP"
+  };
   events.push(`${roleName} 抵达 ${tileName}`);
   const specialHook = checkTileSpecialHook(roomId, nextPosition, player.selectedCharacterId, record.state);
   if (specialHook.handled) {
+    landing = {
+      ...landing,
+      tileType: landedConfig.kind,
+      action: "SPECIAL_TRIGGER"
+    };
     if (specialHook.message) {
       events.push(specialHook.message);
     }
@@ -528,6 +544,7 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
     return {
       ok: true,
       state: record.state,
+      landing,
       events,
       result: {
         ok: true,
@@ -538,12 +555,20 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
       }
     };
   }
-  const landedConfig = getTileConfig(nextPosition);
+  landing = {
+    ...landing,
+    tileType: landedConfig.kind
+  };
   if (landedConfig.kind === "property") {
     if (!landedTile.ownerPlayerId) {
       record.state.phase = "can_buy";
       record.state.pendingBuyTileIndex = landedTile.index;
       events.push(`${roleName} 可购买 ${tileName}（${landedTile.price}）`);
+      landing = {
+        ...landing,
+        action: "BUY_OFFER",
+        amount: landedTile.price
+      };
     } else if (landedTile.ownerPlayerId && landedTile.ownerPlayerId !== player.playerId) {
       const owner = getCurrentPlayer(record.state, landedTile.ownerPlayerId);
       if (owner) {
@@ -551,15 +576,30 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
         player.cash -= payment;
         owner.cash += payment;
         events.push(`${roleName} 向 ${getRoleName(owner)} 支付过路费 ${payment}`);
+        landing = {
+          ...landing,
+          action: "PAY_RENT",
+          amount: payment,
+          ownerHeroId: owner.selectedCharacterId
+        };
       }
       // after rent settlement, advance turn immediately
       advanceTurn(record.state);
     } else {
       // stepping on own property, simply continue turn progression
+      landing = {
+        ...landing,
+        action: "UPGRADE_OFFER",
+        amount: landedTile.price
+      };
       advanceTurn(record.state);
     }
   } else {
     // start/safe tile, no buy flow
+    landing = {
+      ...landing,
+      action: "SPECIAL_TRIGGER"
+    };
     advanceTurn(record.state);
   }
   touchRoom(record);
@@ -567,6 +607,7 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   return {
     ok: true,
     state: record.state,
+    landing,
     events,
     result: {
       ok: true,

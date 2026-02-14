@@ -3,6 +3,7 @@ import type {
   BuyRequestPayload,
   ClientToServerEvents,
   DiceRolledPayload,
+  GameLandingResolvedPayload,
   GameStaticConfigPayload,
   GameSystemEventPayload,
   JoinOrCreateRoomResult,
@@ -46,6 +47,7 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 type RoomStateHandler = (state: RoomState) => void;
 type DiceRolledHandler = (payload: DiceRolledPayload) => void;
+type LandingResolvedHandler = (payload: GameLandingResolvedPayload) => void;
 type SystemEventHandler = (payload: GameSystemEventPayload) => void;
 type StaticConfigHandler = (payload: GameStaticConfigPayload) => void;
 type ErrorHandler = (error: SocketErrorPayload) => void;
@@ -74,6 +76,7 @@ interface SocketClient {
   getSession: () => SessionSnapshot | null;
   subscribeRoomState: (handler: RoomStateHandler) => () => void;
   subscribeDiceRolled: (handler: DiceRolledHandler) => () => void;
+  subscribeLandingResolved: (handler: LandingResolvedHandler) => () => void;
   subscribeSystemEvent: (handler: SystemEventHandler) => () => void;
   subscribeStaticConfig: (handler: StaticConfigHandler) => () => void;
   subscribeError: (handler: ErrorHandler) => () => void;
@@ -95,6 +98,7 @@ let reconnectingFromSession = false;
 
 const roomStateListeners = new Set<RoomStateHandler>();
 const diceRolledListeners = new Set<DiceRolledHandler>();
+const landingResolvedListeners = new Set<LandingResolvedHandler>();
 const systemEventListeners = new Set<SystemEventHandler>();
 const staticConfigListeners = new Set<StaticConfigHandler>();
 const errorListeners = new Set<ErrorHandler>();
@@ -207,6 +211,9 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   });
   socket.on("game:systemEvent", (payload) => {
     systemEventListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("game:landingResolved", (payload) => {
+    landingResolvedListeners.forEach((handler) => handler(payload));
   });
   socket.on("game:staticConfig", (payload) => {
     staticConfigListeners.forEach((handler) => handler(payload));
@@ -356,6 +363,12 @@ export function createSocketClient(): SocketClient {
       systemEventListeners.add(handler);
       return () => {
         systemEventListeners.delete(handler);
+      };
+    },
+    subscribeLandingResolved(handler) {
+      landingResolvedListeners.add(handler);
+      return () => {
+        landingResolvedListeners.delete(handler);
       };
     },
     subscribeStaticConfig(handler) {
