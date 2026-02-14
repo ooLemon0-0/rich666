@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { watch } from "vue";
+import { ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import CharacterSelectModal from "../components/room/CharacterSelectModal.vue";
 import WaitingRoomPanel from "../components/room/WaitingRoomPanel.vue";
+import ConfirmModal from "../components/ui/ConfirmModal.vue";
 import { useRoomStore } from "../stores/roomStore";
 
 const router = useRouter();
 const roomStore = useRoomStore();
+const showExitConfirm = ref(false);
 
 watch(
   () => roomStore.roomStatus,
@@ -19,6 +21,12 @@ watch(
 );
 
 async function backLobby(): Promise<void> {
+  if (roomStore.inRoom) {
+    const ok = await roomStore.leaveRoom();
+    if (!ok) {
+      return;
+    }
+  }
   roomStore.backToLobby();
   await router.push({ name: "lobby" });
 }
@@ -35,7 +43,7 @@ async function onConfirmCharacter(characterId: string): Promise<void> {
   <section class="waiting-view">
     <header class="view-head">
       <h1>等待区 Waiting Room</h1>
-      <button type="button" class="back-btn" @click="backLobby">返回大厅</button>
+      <button type="button" class="back-btn" @click="showExitConfirm = true">退出房间</button>
     </header>
 
     <WaitingRoomPanel v-if="roomStore.inRoom" />
@@ -52,6 +60,14 @@ async function onConfirmCharacter(characterId: string): Promise<void> {
       :connection-status="roomStore.connectionStatus"
       @confirm="onConfirmCharacter"
       @close="roomStore.closeCharacterModalIfSelected"
+    />
+    <ConfirmModal
+      :visible="showExitConfirm"
+      title="退出房间"
+      message="确定要退出房间吗？"
+      confirm-text="确定退出"
+      @cancel="showExitConfirm = false"
+      @confirm="() => { showExitConfirm = false; backLobby(); }"
     />
   </section>
 </template>

@@ -11,6 +11,7 @@ import {
   type InterServerEvents,
   type JoinRoomPayload,
   type JoinOrCreateRoomResult,
+  type LeaveRoomPayload,
   type RoomActionResult,
   type ReconnectRequestPayload,
   type ReconnectRequestResult,
@@ -27,6 +28,7 @@ import {
   disconnectSocket,
   getPlayerRefBySocket,
   joinRoom,
+  leaveRoom,
   reconnectPlayer,
   rollRequest,
   selectCharacter,
@@ -250,6 +252,8 @@ io.on("connection", (socket) => {
         error = roomFull();
       } else if (joinResult.code === "ROOM_ENDED") {
         error = roomEnded();
+      } else if (joinResult.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
       }
       ackAndEmitError(socket.id, ack, error);
       return;
@@ -508,6 +512,32 @@ io.on("connection", (socket) => {
         error = gameNotReady();
       } else if (result.code === "ERR_INVALID_ACTION") {
         error = invalidAction("需房主操作且所有在线玩家已准备");
+      }
+      ackAndEmitError<RoomActionResult>(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
+  });
+
+  socket.on("room_leave", (payload: LeaveRoomPayload, ack: (result: RoomActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    const playerToken = payload.playerToken.trim();
+    if (!roomId || !playerToken) {
+      ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 和 playerToken 不能为空"));
+      return;
+    }
+    const result = leaveRoom(socket.id, roomId, playerToken);
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("当前不能退出房间");
       }
       ackAndEmitError<RoomActionResult>(socket.id, ack, error);
       return;

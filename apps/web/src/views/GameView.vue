@@ -6,11 +6,13 @@ import GameStage from "../components/gamestage/GameStage.vue";
 import ItemDock from "../components/gamehud/ItemDock.vue";
 import PlayerBar from "../components/gamehud/PlayerBar.vue";
 import TradePanel from "../components/gamehud/TradePanel.vue";
+import ConfirmModal from "../components/ui/ConfirmModal.vue";
 import { useRoomStore } from "../stores/roomStore";
 
 const router = useRouter();
 const roomStore = useRoomStore();
 const lyricRef = ref<InstanceType<typeof EventLyric> | null>(null);
+const showExitConfirm = ref(false);
 const prevSpectatorConnected = ref(new Set<string>());
 const connectedSpectatorCount = computed(
   () => roomStore.roomState?.spectators?.filter((item) => item.connected).length ?? 0
@@ -38,6 +40,17 @@ watch(
       return;
     }
     lyricRef.value.pushEvent(`${payload.playerId} 掷出了 ${payload.value}`);
+  }
+);
+
+watch(
+  () => roomStore.systemMessages[0]?.id,
+  () => {
+    const latest = roomStore.systemMessages[0];
+    if (!latest || !lyricRef.value) {
+      return;
+    }
+    lyricRef.value.pushEvent(latest.text);
   }
 );
 
@@ -74,6 +87,10 @@ function pushMockEvent(): void {
 }
 
 async function leaveToLobby(): Promise<void> {
+  const ok = await roomStore.leaveRoom();
+  if (!ok) {
+    return;
+  }
   roomStore.backToLobby();
   await router.replace({ name: "lobby" });
 }
@@ -87,7 +104,7 @@ async function leaveToLobby(): Promise<void> {
         <span class="watching count">观战 {{ connectedSpectatorCount }}</span>
         <span v-if="roomStore.selfRole === 'spectator'" class="watching">观战中</span>
         <button class="btn ghost" type="button" @click="pushMockEvent">模拟事件</button>
-        <button class="btn leave" type="button" @click="leaveToLobby">退出房间</button>
+        <button class="btn leave" type="button" @click="showExitConfirm = true">退出房间</button>
       </div>
     </header>
 
@@ -99,6 +116,14 @@ async function leaveToLobby(): Promise<void> {
         <TradePanel />
       </aside>
     </section>
+    <ConfirmModal
+      :visible="showExitConfirm"
+      title="退出房间"
+      message="确定要退出房间吗？"
+      confirm-text="确定退出"
+      @cancel="showExitConfirm = false"
+      @confirm="() => { showExitConfirm = false; leaveToLobby(); }"
+    />
   </section>
 </template>
 

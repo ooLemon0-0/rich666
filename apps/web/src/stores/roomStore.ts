@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import type { DiceRolledPayload, RoomState, SelfRole } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
+import { getCharacterVisual } from "../game/characters/characters";
 
 function normalizeRoomCode(raw: string): string {
   return raw
@@ -44,9 +45,34 @@ export const useRoomStore = defineStore("room_ui", () => {
   const tradePending = ref(false);
   const lastJoinErrorCode = ref("");
   const diceRolledEvent = ref<{ seq: number; payload: DiceRolledPayload } | null>(null);
+  const systemMessages = ref<Array<{ id: number; text: string }>>([]);
   let diceSeq = 0;
+  let systemSeq = 0;
+  let previousPlayers = new Map<string, { status: string; selectedCharacterId: string | null }>();
+
+  function pushSystemMessage(text: string): void {
+    systemSeq += 1;
+    systemMessages.value.unshift({ id: systemSeq, text });
+    if (systemMessages.value.length > 20) {
+      systemMessages.value = systemMessages.value.slice(0, 20);
+    }
+  }
 
   socketClient.subscribeRoomState((state) => {
+    const nextPlayers = new Map<string, { status: string; selectedCharacterId: string | null }>();
+    state.players.forEach((player) => {
+      nextPlayers.set(player.playerId, { status: player.status, selectedCharacterId: player.selectedCharacterId });
+      const prev = previousPlayers.get(player.playerId);
+      if (prev && prev.status !== "left" && player.status === "left") {
+        const roleName = getCharacterVisual(player.selectedCharacterId).displayName;
+        pushSystemMessage(`${roleName} 已退出`);
+      }
+      if (prev && prev.status === "disconnected" && player.status === "active") {
+        const roleName = getCharacterVisual(player.selectedCharacterId).displayName;
+        pushSystemMessage(`${roleName} 已重连`);
+      }
+    });
+    previousPlayers = nextPlayers;
     roomState.value = state;
   });
   socketClient.subscribeConnection((status) => {
@@ -209,6 +235,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     }
     socketClient.setSession({ roomId: result.roomId, playerId: result.playerId });
     onJoinSuccess(result.playerId, result.role ?? "player", result.reconnected ?? false);
+    previousPlayers = new Map();
     return true;
   }
 
@@ -237,6 +264,23 @@ export const useRoomStore = defineStore("room_ui", () => {
     }
     socketClient.setSession({ roomId: result.roomId, playerId: result.playerId });
     onJoinSuccess(result.playerId, result.role ?? "player", result.reconnected ?? false);
+    previousPlayers = new Map();
+    return true;
+  }
+
+  async function leaveRoom(): Promise<boolean> {
+    if (!roomId.value) {
+      localError.value = "当前不在房间内";
+      return false;
+    }
+    const playerToken = getOrCreatePlayerToken();
+    actionPending.value = true;
+    const result = await socketClient.leaveRoom(roomId.value, playerToken);
+    actionPending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
     return true;
   }
 
@@ -334,6 +378,8 @@ export const useRoomStore = defineStore("room_ui", () => {
     lastJoinErrorCode.value = "";
     rollingPending.value = false;
     tradePending.value = false;
+    systemMessages.value = [];
+    previousPlayers = new Map();
   }
 
   async function rollDice(): Promise<boolean> {
@@ -418,6 +464,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     roomId,
     roomState,
     selfRole,
+    systemMessages,
     roomStatus,
     maxPlayers,
     connectedPlayersCount,
@@ -433,6 +480,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     closeCharacterModal,
     closeJoinModal,
     createRoom,
+    leaveRoom,
     joinRoom,
     openCharacterModal,
     openJoinModal,

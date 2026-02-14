@@ -64,6 +64,7 @@ interface SocketClient {
   selectCharacter: (roomId: string, characterId: string) => Promise<ClientRoomActionResult>;
   toggleReady: (roomId: string) => Promise<RoomActionResult>;
   startGame: (roomId: string) => Promise<RoomActionResult>;
+  leaveRoom: (roomId: string, playerToken: string) => Promise<RoomActionResult>;
   setSession: (session: SessionSnapshot) => void;
   clearSession: () => void;
   getSession: () => SessionSnapshot | null;
@@ -311,6 +312,12 @@ export function createSocketClient(): SocketClient {
       const socket = getSocket();
       return withAck<RoomActionResult>((ack) => {
         socket.emit("room_start_game", { roomId }, ack);
+      });
+    },
+    leaveRoom(roomId, playerToken) {
+      const socket = getSocket();
+      return withAck<RoomActionResult>((ack) => {
+        socket.emit("room_leave", { roomId, playerToken }, ack);
       });
     },
     subscribeRoomState(handler) {

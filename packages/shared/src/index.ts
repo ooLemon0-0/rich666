@@ -1,6 +1,7 @@
 export type RoomId = string;
 export type PlayerId = string;
 export type SelfRole = "player" | "spectator";
+export type PlayerStatus = "active" | "left" | "disconnected";
 export type RoomPhase = "waiting" | "rolling" | "moving" | "can_buy";
 export type RoomStatus = "waiting" | "in_game" | "ended";
 export const BOARD_SIZE = 40;
@@ -15,6 +16,7 @@ export interface Player {
   ready: boolean;
   selectedCharacterId: string | null;
   playerToken: string;
+  status: PlayerStatus;
 }
 
 export interface Spectator {
@@ -83,6 +85,10 @@ export interface ToggleReadyPayload {
 export interface StartGamePayload {
   roomId: RoomId;
 }
+export interface LeaveRoomPayload {
+  roomId: RoomId;
+  playerToken: string;
+}
 
 export interface JoinOrCreateRoomAck {
   ok: true;
@@ -140,7 +146,7 @@ export interface RoomActionSuccessPayload {
   ok: true;
   roomId: RoomId;
   playerId: PlayerId;
-  action: "select_character" | "toggle_ready" | "start_game";
+  action: "select_character" | "toggle_ready" | "start_game" | "leave_room";
 }
 export type RoomActionResult = RoomActionSuccessPayload | ErrorPayload;
 export interface ReconnectSuccessPayload {
@@ -163,6 +169,7 @@ export interface ClientToServerEvents {
   room_select_character: (payload: SelectCharacterPayload, ack: (result: RoomActionResult) => void) => void;
   room_toggle_ready: (payload: ToggleReadyPayload, ack: (result: RoomActionResult) => void) => void;
   room_start_game: (payload: StartGamePayload, ack: (result: RoomActionResult) => void) => void;
+  room_leave: (payload: LeaveRoomPayload, ack: (result: RoomActionResult) => void) => void;
 }
 
 export interface ServerToClientEvents {

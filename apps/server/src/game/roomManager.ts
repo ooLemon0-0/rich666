@@ -28,7 +28,7 @@ interface SpectatorRef {
   spectatorId: string;
 }
 
-export type JoinRoomFailureCode = "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROOM_ENDED";
+export type JoinRoomFailureCode = "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROOM_ENDED" | "ROOM_MISMATCH";
 export type RollFailureCode =
   | "ROOM_NOT_FOUND"
   | "ROOM_ENDED"
@@ -143,7 +143,8 @@ function buildPlayer(playerId: PlayerId, nickname: string, playerToken: string):
     joinedAt: Date.now(),
     ready: false,
     selectedCharacterId: null,
-    playerToken
+    playerToken,
+    status: "active"
   };
 }
 
@@ -218,11 +219,15 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string, pla
   }
   const existingPlayer = record.state.players.find((item) => item.playerToken === playerToken);
   if (existingPlayer) {
+    if (existingPlayer.status === "left") {
+      return { ok: false, code: "ROOM_MISMATCH" };
+    }
     const oldSocketId = playerToSocket.get(roomPlayerKey(roomId, existingPlayer.playerId));
     if (oldSocketId && oldSocketId !== socketId) {
       socketToPlayer.delete(oldSocketId);
     }
     existingPlayer.connected = true;
+    existingPlayer.status = "active";
     existingPlayer.nickname = nickname;
     socketToPlayer.set(socketId, { roomId, playerId: existingPlayer.playerId });
     playerToSocket.set(roomPlayerKey(roomId, existingPlayer.playerId), socketId);
@@ -313,6 +318,9 @@ export function disconnectSocket(socketId: string): RoomState | null {
     return record.state;
   }
   player.connected = false;
+  if (player.status === "active") {
+    player.status = "disconnected";
+  }
 
   if (record.state.currentTurnPlayerId === player.playerId) {
     advanceTurn(record.state);
@@ -334,6 +342,7 @@ function randomDice(): number {
 function advanceTurn(state: RoomState): void {
   const connectedPlayers = state.players.filter((player) => player.connected);
   if (connectedPlayers.length < 2) {
+    state.currentTurnPlayerId = connectedPlayers[0]?.playerId ?? null;
     state.phase = "waiting";
     state.pendingBuyTileIndex = null;
     return;
@@ -542,6 +551,9 @@ export function reconnectPlayer(
   if (!player) {
     return { ok: false, code: "PLAYER_NOT_FOUND" };
   }
+  if (player.status === "left") {
+    return { ok: false, code: "ROOM_MISMATCH" };
+  }
 
   const playerKey = roomPlayerKey(roomId, playerId);
   const oldSocketId = playerToSocket.get(playerKey);
@@ -552,6 +564,7 @@ export function reconnectPlayer(
   socketToPlayer.set(socketId, { roomId, playerId });
   playerToSocket.set(playerKey, socketId);
   player.connected = true;
+  player.status = "active";
 
   const connectedCount = record.state.players.filter((item) => item.connected).length;
   if (record.state.status === "in_game" && connectedCount >= 2 && record.state.phase === "waiting") {
@@ -587,6 +600,9 @@ function getPlayerRecord(socketId: string, roomId: RoomId): { state?: RoomState;
   const player = record.state.players.find((item) => item.playerId === playerRef.playerId);
   if (!player) {
     return { code: "PLAYER_NOT_FOUND" };
+  }
+  if (player.status === "left") {
+    return { code: "ROOM_MISMATCH" };
   }
   return { state: record.state, player };
 }
@@ -683,6 +699,43 @@ export function startGame(socketId: string, roomId: RoomId): RoomActionResult {
       roomId,
       playerId: entry.player.playerId,
       action: "start_game"
+    }
+  };
+}
+
+export function leaveRoom(socketId: string, roomId: RoomId, playerToken: string): RoomActionResult {
+  const entry = getPlayerRecord(socketId, roomId);
+  if (!entry.state || !entry.player) {
+    return { ok: false, code: entry.code ?? "ROOM_NOT_FOUND" };
+  }
+  if (entry.player.playerToken !== playerToken.trim()) {
+    return { ok: false, code: "ROOM_MISMATCH" };
+  }
+  if (entry.player.status === "left") {
+    return { ok: false, code: "ERR_INVALID_ACTION" };
+  }
+
+  entry.player.status = "left";
+  entry.player.connected = false;
+  entry.player.ready = false;
+
+  if (entry.state.hostPlayerId === entry.player.playerId) {
+    const nextHost = entry.state.players.find((item) => item.status !== "left");
+    entry.state.hostPlayerId = nextHost?.playerId ?? entry.state.hostPlayerId;
+  }
+
+  if (entry.state.currentTurnPlayerId === entry.player.playerId) {
+    advanceTurn(entry.state);
+  }
+
+  return {
+    ok: true,
+    state: entry.state,
+    result: {
+      ok: true,
+      roomId,
+      playerId: entry.player.playerId,
+      action: "leave_room"
     }
   };
 }

@@ -2,11 +2,13 @@
 import { computed, ref } from "vue";
 import { useRoomStore } from "../../stores/roomStore";
 import PlayerList from "./PlayerList.vue";
+import ManualCopyModal from "./ManualCopyModal.vue";
+import { copyTextWithFallback } from "../../utils/copyText";
 
 const roomStore = useRoomStore();
 const copied = ref(false);
 const copiedText = ref("");
-const inviteInputRef = ref<HTMLInputElement | null>(null);
+const showManualCopyModal = ref(false);
 const inviteUrl = computed(() => (roomStore.roomId ? buildInviteUrl(roomStore.roomId) : ""));
 
 const readyButtonText = computed(() => {
@@ -23,19 +25,20 @@ async function copyInviteUrl(): Promise<void> {
   if (!roomStore.roomId) {
     return;
   }
-  try {
-    await navigator.clipboard.writeText(buildInviteUrl(roomStore.roomId));
+  const ok = await copyTextWithFallback(buildInviteUrl(roomStore.roomId));
+  if (ok) {
     copied.value = true;
-    copiedText.value = "已复制，发给好友即可直接进入";
+    copiedText.value = "已复制邀请链接";
+    roomStore.localError = "";
     window.setTimeout(() => {
       copied.value = false;
       copiedText.value = "";
     }, 1200);
-  } catch {
-    roomStore.localError = "复制失败，请手动复制链接";
+  } else {
+    copied.value = false;
     copiedText.value = "复制失败，请手动复制链接";
-    inviteInputRef.value?.focus();
-    inviteInputRef.value?.select();
+    roomStore.localError = "复制失败，请手动复制链接";
+    showManualCopyModal.value = true;
   }
 }
 
@@ -58,7 +61,6 @@ function handleModifyRole(): void {
       </button>
     </header>
     <p v-if="copiedText" class="copy-tip">{{ copiedText }}</p>
-    <input ref="inviteInputRef" class="invite-fallback" :value="inviteUrl" readonly />
 
     <PlayerList
       :players="roomStore.players"
@@ -90,9 +92,12 @@ function handleModifyRole(): void {
 
     <div class="tips">
       <p v-if="roomStore.selfRole === 'spectator'" class="spectator-tip">当前为观战模式，无法掷骰或购买。</p>
+      <p v-if="roomStore.systemMessages[0]" class="sys-msg">{{ roomStore.systemMessages[0].text }}</p>
       <p>连接状态：{{ roomStore.connectionHint }}</p>
       <p v-if="roomStore.localError" class="error">{{ roomStore.localError }}</p>
     </div>
+
+    <ManualCopyModal :visible="showManualCopyModal" :text="inviteUrl" @close="showManualCopyModal = false" />
   </section>
 </template>
 
@@ -141,17 +146,6 @@ h2 {
   color: #065f46;
   font-size: 13px;
   font-weight: 700;
-}
-
-.invite-fallback {
-  width: 100%;
-  margin: 0 0 10px;
-  border-radius: 10px;
-  border: 1px solid #bfdbfe;
-  padding: 8px 10px;
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
 }
 
 .copy-btn {
@@ -210,6 +204,11 @@ h2 {
 .spectator-tip {
   margin-bottom: 4px !important;
   color: #0369a1;
+  font-weight: 700;
+}
+.sys-msg {
+  margin-bottom: 4px !important;
+  color: #7c3aed;
   font-weight: 700;
 }
 </style>
