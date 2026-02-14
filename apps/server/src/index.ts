@@ -12,6 +12,7 @@ import {
   type JoinRoomPayload,
   type JoinOrCreateRoomResult,
   type GameSystemEventPayload,
+  type GameStaticConfigPayload,
   type LeaveRoomPayload,
   type RoomActionResult,
   type ReconnectRequestPayload,
@@ -38,6 +39,7 @@ import {
   startGame,
   toggleReady
 } from "./game/roomManager.js";
+import { TILES_CONFIG, TILES_CONFIG_VERSION } from "./game/tilesConfig.js";
 
 const app = Fastify({ logger: true });
 const configuredWebOrigin = process.env.WEB_ORIGIN?.trim();
@@ -190,6 +192,15 @@ function emitSystemEvents(roomId: string, events: string[] | undefined): void {
   });
 }
 
+function emitStaticConfig(socketId: string, roomId: string): void {
+  const payload: GameStaticConfigPayload = {
+    roomId,
+    version: TILES_CONFIG_VERSION,
+    tiles: TILES_CONFIG
+  };
+  io.to(socketId).emit("game:staticConfig", payload);
+}
+
 function ackAndEmitError<TErrorResult>(
   socketId: string,
   ack: (result: TErrorResult) => void,
@@ -244,6 +255,7 @@ io.on("connection", (socket) => {
     };
     ack(result);
     emitRoomState(state.roomId, state);
+    emitStaticConfig(socket.id, state.roomId);
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room created");
   });
 
@@ -285,6 +297,7 @@ io.on("connection", (socket) => {
     };
     ack(result);
     emitRoomState(state.roomId, state);
+    emitStaticConfig(socket.id, state.roomId);
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room joined");
   });
 
@@ -327,6 +340,7 @@ io.on("connection", (socket) => {
 
     ack(reconnectResult.result);
     emitRoomState(roomId, reconnectResult.state);
+    emitStaticConfig(socket.id, roomId);
     app.log.info({ socketId: socket.id, roomId, playerId }, "player reconnected");
   });
 

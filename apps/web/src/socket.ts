@@ -3,6 +3,7 @@ import type {
   BuyRequestPayload,
   ClientToServerEvents,
   DiceRolledPayload,
+  GameStaticConfigPayload,
   GameSystemEventPayload,
   JoinOrCreateRoomResult,
   RoomActionResult,
@@ -46,6 +47,7 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 type RoomStateHandler = (state: RoomState) => void;
 type DiceRolledHandler = (payload: DiceRolledPayload) => void;
 type SystemEventHandler = (payload: GameSystemEventPayload) => void;
+type StaticConfigHandler = (payload: GameStaticConfigPayload) => void;
 type ErrorHandler = (error: SocketErrorPayload) => void;
 type ConnectionHandler = (status: ConnectionStatus) => void;
 type SocketConnectError = Error & { description?: unknown; context?: unknown };
@@ -73,6 +75,7 @@ interface SocketClient {
   subscribeRoomState: (handler: RoomStateHandler) => () => void;
   subscribeDiceRolled: (handler: DiceRolledHandler) => () => void;
   subscribeSystemEvent: (handler: SystemEventHandler) => () => void;
+  subscribeStaticConfig: (handler: StaticConfigHandler) => () => void;
   subscribeError: (handler: ErrorHandler) => () => void;
   subscribeConnection: (handler: ConnectionHandler) => () => void;
   getStatus: () => ConnectionStatus;
@@ -93,6 +96,7 @@ let reconnectingFromSession = false;
 const roomStateListeners = new Set<RoomStateHandler>();
 const diceRolledListeners = new Set<DiceRolledHandler>();
 const systemEventListeners = new Set<SystemEventHandler>();
+const staticConfigListeners = new Set<StaticConfigHandler>();
 const errorListeners = new Set<ErrorHandler>();
 const connectionListeners = new Set<ConnectionHandler>();
 
@@ -203,6 +207,9 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   });
   socket.on("game:systemEvent", (payload) => {
     systemEventListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("game:staticConfig", (payload) => {
+    staticConfigListeners.forEach((handler) => handler(payload));
   });
 
   socketInstance = socket;
@@ -349,6 +356,12 @@ export function createSocketClient(): SocketClient {
       systemEventListeners.add(handler);
       return () => {
         systemEventListeners.delete(handler);
+      };
+    },
+    subscribeStaticConfig(handler) {
+      staticConfigListeners.add(handler);
+      return () => {
+        staticConfigListeners.delete(handler);
       };
     },
     setSession(session) {

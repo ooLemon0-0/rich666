@@ -129,6 +129,20 @@ export interface GameSystemEventPayload {
   roomId: RoomId;
   text: string;
 }
+export type StaticTileKind = "special" | "property";
+export interface StaticTileConfig {
+  index: number;
+  tileId: string;
+  name: string;
+  kind: StaticTileKind;
+  price: number;
+  rent: number;
+}
+export interface GameStaticConfigPayload {
+  roomId: RoomId;
+  version: number;
+  tiles: StaticTileConfig[];
+}
 
 export type JoinOrCreateRoomResult = JoinOrCreateRoomAck | ErrorPayload;
 export interface RollSuccessPayload {
@@ -181,6 +195,7 @@ export interface ServerToClientEvents {
   "room:state": (state: RoomState) => void;
   "game:diceRolled": (payload: DiceRolledPayload) => void;
   "game:systemEvent": (payload: GameSystemEventPayload) => void;
+  "game:staticConfig": (payload: GameStaticConfigPayload) => void;
   error: (error: SocketErrorPayload) => void;
 }
 

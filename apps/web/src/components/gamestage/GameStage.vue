@@ -5,9 +5,9 @@ import DiceButton from "./DiceButton.vue";
 import DiceOverlay from "./DiceOverlay.vue";
 import TileNode from "./TileNode.vue";
 import TileDetailModal from "./TileDetailModal.vue";
-import { BOARD_TILES } from "../../game/board/boardConfig";
 import { getCharacterVisual } from "../../game/characters/characters";
 import { useRoomStore } from "../../stores/roomStore";
+import { setRuntimeError, updateDebugLayout, updateDebugStageRect } from "../../debug/debugStore";
 
 interface RoutePoint {
   xPct: number;
@@ -31,14 +31,12 @@ const layoutStatus = ref({
   lastError: ""
 });
 const runtimeError = ref("");
-const showDebugOverlay = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
 const stageReady = computed(() => stageRect.value.width >= 300 && stageRect.value.height >= 300);
-const tilesRenderable = computed(() => stageReady.value && layoutStatus.value.rendered && routePoints.value.length === tiles.length);
+const tiles = computed(() => roomStore.resolvedBoardTiles);
+const tilesRenderable = computed(() => stageReady.value && layoutStatus.value.rendered && routePoints.value.length === tiles.value.length);
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
 let errorHandler: ((event: ErrorEvent) => void) | null = null;
-
-const tiles = BOARD_TILES;
 
 function onPointsChange(points: RoutePoint[]): void {
   routePoints.value = points;
@@ -64,7 +62,7 @@ const occupantMap = computed(() => {
     if (player.status === "left") {
       return;
     }
-    const pos = player.position % tiles.length;
+    const pos = player.position % tiles.value.length;
     const list = map.get(pos) ?? [];
     const visual = getCharacterVisual(player.selectedCharacterId);
     list.push({
@@ -78,14 +76,14 @@ const occupantMap = computed(() => {
 });
 
 const ownerCharacterByIndex = computed(() =>
-  roomStore.roomState?.board.map((tile) => tile.ownerCharacterId ?? null) ?? Array.from({ length: tiles.length }, () => null)
+  roomStore.roomState?.board.map((tile) => tile.ownerCharacterId ?? null) ?? Array.from({ length: tiles.value.length }, () => null)
 );
 
 const selectedPropertyTile = computed(() => {
   if (selectedTileIndex.value === null) {
     return null;
   }
-  const tile = tiles[selectedTileIndex.value];
+  const tile = tiles.value[selectedTileIndex.value];
   return tile?.type === "property" ? tile : null;
 });
 
@@ -117,7 +115,7 @@ async function handleBuySelectedTile(): Promise<void> {
 }
 
 function handleSelectTile(tileIndex: number): void {
-  const tile = tiles[tileIndex];
+  const tile = tiles.value[tileIndex];
   if (tile?.type !== "property") {
     return;
   }
@@ -150,12 +148,14 @@ onMounted(() => {
           width: Math.floor(entry.contentRect.width),
           height: Math.floor(entry.contentRect.height)
         };
+        updateDebugStageRect(stageRect.value.width, stageRect.value.height);
       });
     });
     resizeObserver.observe(stageRef.value);
   }
   errorHandler = (event: ErrorEvent) => {
     runtimeError.value = event.message;
+    setRuntimeError(event.message);
   };
   window.addEventListener("error", errorHandler);
 });
@@ -179,9 +179,6 @@ onBeforeUnmount(() => {
 watch(
   () => stageRect.value,
   (next) => {
-    if (!showDebugOverlay) {
-      return;
-    }
     console.log("[STAGE]", next);
   },
   { deep: true }
@@ -190,10 +187,14 @@ watch(
 watch(
   () => layoutStatus.value,
   (next) => {
-    if (!showDebugOverlay) {
-      return;
-    }
     console.log("[LAYOUT]", next);
+    updateDebugLayout({
+      boardScale: next.scale,
+      tileCount: next.tileCount,
+      rendered: next.rendered,
+      hasNaN: next.hasNaN,
+      runtimeError: next.lastError
+    });
   },
   { deep: true }
 );
@@ -241,15 +242,6 @@ watch(
       @buy="handleBuySelectedTile"
     />
     <div v-if="!tilesRenderable" class="board-loading">Loading board...</div>
-    <div v-if="showDebugOverlay" class="debug-overlay">
-      <p>stageRect: {{ stageRect.width }} x {{ stageRect.height }}</p>
-      <p>boardScale: {{ layoutStatus.scale.toFixed(3) }}</p>
-      <p>tileCount: {{ layoutStatus.tileCount }}</p>
-      <p>rendered: {{ layoutStatus.rendered }}</p>
-      <p>hasNaN: {{ layoutStatus.hasNaN }}</p>
-      <p v-if="layoutStatus.lastError">layoutErr: {{ layoutStatus.lastError }}</p>
-      <p v-if="runtimeError">runtimeErr: {{ runtimeError }}</p>
-    </div>
   </section>
 </template>
 
@@ -304,22 +296,6 @@ watch(
   font-weight: 700;
   background: rgba(255, 255, 255, 0.85);
   z-index: 12;
-}
-.debug-overlay {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  z-index: 40;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: #111827;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-}
-.debug-overlay p {
-  margin: 0;
-  line-height: 1.3;
 }
 @media (max-height: 840px) {
   .game-stage {

@@ -1,9 +1,10 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import type { DiceRolledPayload, RoomState, SelfRole } from "@rich/shared";
+import type { DiceRolledPayload, GameStaticConfigPayload, RoomState, SelfRole } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 import { getCharacterVisual } from "../game/characters/characters";
 import { BOARD_TILES } from "../game/board/boardConfig";
+import { updateDebugTiles } from "../debug/debugStore";
 
 function normalizeRoomCode(raw: string): string {
   return raw
@@ -47,6 +48,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const lastJoinErrorCode = ref("");
   const diceRolledEvent = ref<{ seq: number; payload: DiceRolledPayload } | null>(null);
   const gameSystemEvent = ref<{ seq: number; text: string } | null>(null);
+  const staticConfig = ref<GameStaticConfigPayload | null>(null);
   const systemMessages = ref<Array<{ id: number; text: string }>>([]);
   let diceSeq = 0;
   let systemSeq = 0;
@@ -97,12 +99,59 @@ export const useRoomStore = defineStore("room_ui", () => {
     gameSystemEvent.value = { seq: diceSeq, text: payload.text };
     pushSystemMessage(payload.text);
   });
+  socketClient.subscribeStaticConfig((payload) => {
+    staticConfig.value = payload;
+  });
 
   const roomId = computed(() => roomState.value?.roomId ?? "");
   const inRoom = computed(() => Boolean(roomState.value));
   const roomStatus = computed(() => roomState.value?.status ?? "waiting");
   const maxPlayers = 6;
   const players = computed(() => roomState.value?.players ?? []);
+  const fallbackTiles40 = computed(() => BOARD_TILES);
+  const resolvedBoardTiles = computed(() => {
+    const incoming = staticConfig.value?.tiles;
+    if (!incoming || incoming.length !== 40) {
+      return fallbackTiles40.value;
+    }
+    return incoming.map((tile, index) => {
+      const base = BOARD_TILES[index];
+      if (tile.kind === "property") {
+        if (base.type === "property") {
+          return {
+            ...base,
+            nameZh: tile.name || base.nameZh,
+            price: tile.price,
+            toll: tile.rent
+          };
+        }
+        return {
+          id: tile.tileId,
+          type: "property" as const,
+          nameZh: tile.name || `地块${index}`,
+          zhouKey: "豫" as const,
+          zhouName: "中原",
+          tagIcon: "豫",
+          setBonusRentMul: 1.5,
+          price: tile.price,
+          toll: tile.rent,
+          buildCost: Math.floor(tile.price * 0.75),
+          level: 0
+        };
+      }
+      if (base.type === "special") {
+        return { ...base, nameZh: tile.name || base.nameZh };
+      }
+      return {
+        id: tile.tileId,
+        type: "special" as const,
+        nameZh: tile.name || `特殊地块${index}`,
+        icon: "⭐"
+      };
+    });
+  });
+  const tilesConfigLoaded = computed(() => Boolean(staticConfig.value?.tiles?.length === 40));
+  const usingFallbackTiles = computed(() => !tilesConfigLoaded.value);
   const selfPlayer = computed(() => players.value.find((item) => item.playerId === playerId.value) ?? null);
   const selfPlayerId = computed(() => playerId.value);
   const selectedCharacterId = computed(() => selfPlayer.value?.selectedCharacterId ?? null);
@@ -223,6 +272,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     showJoinModal.value = false;
     localError.value = "";
     lastJoinErrorCode.value = "";
+    staticConfig.value = null;
   }
 
   async function createRoom(): Promise<boolean> {
@@ -388,6 +438,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     rollingPending.value = false;
     tradePending.value = false;
     gameSystemEvent.value = null;
+    staticConfig.value = null;
     systemMessages.value = [];
     previousPlayers = new Map();
   }
@@ -446,6 +497,17 @@ export const useRoomStore = defineStore("room_ui", () => {
     selfRole.value = "player";
     socketClient.connect();
   }
+  watch(
+    () => [tilesConfigLoaded.value, usingFallbackTiles.value, resolvedBoardTiles.value.length],
+    () => {
+      updateDebugTiles({
+        loaded: tilesConfigLoaded.value,
+        usingFallback: usingFallbackTiles.value,
+        count: resolvedBoardTiles.value.length
+      });
+    },
+    { immediate: true }
+  );
 
   return {
     actionPending,
@@ -472,6 +534,10 @@ export const useRoomStore = defineStore("room_ui", () => {
     rollingPending,
     diceRolledEvent,
     gameSystemEvent,
+    staticConfig,
+    tilesConfigLoaded,
+    usingFallbackTiles,
+    resolvedBoardTiles,
     roomId,
     roomState,
     selfRole,
