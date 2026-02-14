@@ -3,6 +3,7 @@ import type {
   BuyRequestPayload,
   ClientToServerEvents,
   DiceRolledPayload,
+  GameSystemEventPayload,
   JoinOrCreateRoomResult,
   RoomActionResult,
   ReconnectRequestResult,
@@ -44,6 +45,7 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 type RoomStateHandler = (state: RoomState) => void;
 type DiceRolledHandler = (payload: DiceRolledPayload) => void;
+type SystemEventHandler = (payload: GameSystemEventPayload) => void;
 type ErrorHandler = (error: SocketErrorPayload) => void;
 type ConnectionHandler = (status: ConnectionStatus) => void;
 type SocketConnectError = Error & { description?: unknown; context?: unknown };
@@ -70,6 +72,7 @@ interface SocketClient {
   getSession: () => SessionSnapshot | null;
   subscribeRoomState: (handler: RoomStateHandler) => () => void;
   subscribeDiceRolled: (handler: DiceRolledHandler) => () => void;
+  subscribeSystemEvent: (handler: SystemEventHandler) => () => void;
   subscribeError: (handler: ErrorHandler) => () => void;
   subscribeConnection: (handler: ConnectionHandler) => () => void;
   getStatus: () => ConnectionStatus;
@@ -89,6 +92,7 @@ let reconnectingFromSession = false;
 
 const roomStateListeners = new Set<RoomStateHandler>();
 const diceRolledListeners = new Set<DiceRolledHandler>();
+const systemEventListeners = new Set<SystemEventHandler>();
 const errorListeners = new Set<ErrorHandler>();
 const connectionListeners = new Set<ConnectionHandler>();
 
@@ -196,6 +200,9 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   });
   socket.on("game:diceRolled", (payload) => {
     diceRolledListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("game:systemEvent", (payload) => {
+    systemEventListeners.forEach((handler) => handler(payload));
   });
 
   socketInstance = socket;
@@ -336,6 +343,12 @@ export function createSocketClient(): SocketClient {
       diceRolledListeners.add(handler);
       return () => {
         diceRolledListeners.delete(handler);
+      };
+    },
+    subscribeSystemEvent(handler) {
+      systemEventListeners.add(handler);
+      return () => {
+        systemEventListeners.delete(handler);
       };
     },
     setSession(session) {

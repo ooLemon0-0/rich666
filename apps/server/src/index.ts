@@ -11,6 +11,7 @@ import {
   type InterServerEvents,
   type JoinRoomPayload,
   type JoinOrCreateRoomResult,
+  type GameSystemEventPayload,
   type LeaveRoomPayload,
   type RoomActionResult,
   type ReconnectRequestPayload,
@@ -177,6 +178,16 @@ function characterTaken(): ErrorPayload {
 function emitRoomState(roomId: string, state: ReturnType<typeof createRoom>): void {
   io.to(roomId).emit("room_state", state);
   io.to(roomId).emit("room:state", state);
+}
+
+function emitSystemEvents(roomId: string, events: string[] | undefined): void {
+  if (!events || events.length === 0) {
+    return;
+  }
+  events.forEach((text) => {
+    const payload: GameSystemEventPayload = { roomId, text };
+    io.to(roomId).emit("game:systemEvent", payload);
+  });
 }
 
 function ackAndEmitError<TErrorResult>(
@@ -352,6 +363,7 @@ io.on("connection", (socket) => {
       value: roll.result.dice
     });
     emitRoomState(roomId, roll.state);
+    emitSystemEvents(roomId, roll.events);
     app.log.info(
       {
         socketId: socket.id,
@@ -394,6 +406,7 @@ io.on("connection", (socket) => {
     }
     ack(result.result);
     emitRoomState(roomId, result.state);
+    emitSystemEvents(roomId, result.events);
     app.log.info({ socketId: socket.id, roomId, action: "buy" }, "trade applied");
   });
 
@@ -426,6 +439,7 @@ io.on("connection", (socket) => {
     }
     ack(result.result);
     emitRoomState(roomId, result.state);
+    emitSystemEvents(roomId, result.events);
     app.log.info({ socketId: socket.id, roomId, action: "skip_buy" }, "trade applied");
   });
 

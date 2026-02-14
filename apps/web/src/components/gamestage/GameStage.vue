@@ -13,8 +13,8 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  widthPx: number;
-  heightPx: number;
+  wPct: number;
+  hPct: number;
   isCorner: boolean;
 }
 
@@ -126,11 +126,13 @@ onBeforeUnmount(() => {
       :key="tile.id"
       :tile-index="index"
       :tile="tile"
-      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, widthPx: 96, heightPx: 96, isCorner: false }"
-      :width="routePoints[index]?.widthPx ?? 96"
-      :height="routePoints[index]?.heightPx ?? 96"
+      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, wPct: 10, hPct: 10, isCorner: false }"
+      :width-pct="routePoints[index]?.wPct ?? 10"
+      :height-pct="routePoints[index]?.hPct ?? 10"
       :is-corner="routePoints[index]?.isCorner ?? false"
       :owner-character-id="ownerCharacterByIndex[index] ?? null"
+      :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
+      :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
       :selected="selectedTileIndex === index"
       :occupants="occupantMap.get(index) ?? []"
       @select="handleSelectTile"
@@ -153,7 +155,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .game-stage {
   position: relative;
-  min-height: 700px;
+  width: 100%;
+  height: min(72vh, 760px);
+  min-height: 440px;
+  max-height: 760px;
   border-radius: 18px;
   border: 2px solid rgba(186, 230, 253, 0.9);
   overflow: hidden;
@@ -179,5 +184,11 @@ onBeforeUnmount(() => {
 .game-stage > * {
   position: relative;
   z-index: 1;
+}
+@media (max-height: 840px) {
+  .game-stage {
+    height: min(68vh, 680px);
+    min-height: 400px;
+  }
 }
 </style>

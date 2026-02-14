@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import type { DiceRolledPayload, RoomState, SelfRole } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 import { getCharacterVisual } from "../game/characters/characters";
+import { BOARD_TILES } from "../game/board/boardConfig";
 
 function normalizeRoomCode(raw: string): string {
   return raw
@@ -45,6 +46,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const tradePending = ref(false);
   const lastJoinErrorCode = ref("");
   const diceRolledEvent = ref<{ seq: number; payload: DiceRolledPayload } | null>(null);
+  const gameSystemEvent = ref<{ seq: number; text: string } | null>(null);
   const systemMessages = ref<Array<{ id: number; text: string }>>([]);
   let diceSeq = 0;
   let systemSeq = 0;
@@ -89,6 +91,11 @@ export const useRoomStore = defineStore("room_ui", () => {
   socketClient.subscribeDiceRolled((payload) => {
     diceSeq += 1;
     diceRolledEvent.value = { seq: diceSeq, payload };
+  });
+  socketClient.subscribeSystemEvent((payload) => {
+    diceSeq += 1;
+    gameSystemEvent.value = { seq: diceSeq, text: payload.text };
+    pushSystemMessage(payload.text);
   });
 
   const roomId = computed(() => roomState.value?.roomId ?? "");
@@ -178,12 +185,14 @@ export const useRoomStore = defineStore("room_ui", () => {
     if (!roomState.value || !currentTile.value || !selfPlayer.value) {
       return false;
     }
+    const boardTile = BOARD_TILES[currentTile.value.index];
+    const isProperty = boardTile?.type === "property";
     return (
       selfRole.value === "player" &&
       roomStatus.value === "in_game" &&
       roomState.value.phase === "can_buy" &&
       roomState.value.currentTurnPlayerId === playerId.value &&
-      currentTile.value.index !== 0 &&
+      isProperty &&
       !currentTile.value.ownerPlayerId &&
       selfPlayer.value.cash >= currentTile.value.price
     );
@@ -378,6 +387,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     lastJoinErrorCode.value = "";
     rollingPending.value = false;
     tradePending.value = false;
+    gameSystemEvent.value = null;
     systemMessages.value = [];
     previousPlayers = new Map();
   }
@@ -461,6 +471,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     players,
     rollingPending,
     diceRolledEvent,
+    gameSystemEvent,
     roomId,
     roomState,
     selfRole,

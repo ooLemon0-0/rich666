@@ -125,6 +125,10 @@ export interface DiceRolledPayload {
   playerId: PlayerId;
   value: number;
 }
+export interface GameSystemEventPayload {
+  roomId: RoomId;
+  text: string;
+}
 
 export type JoinOrCreateRoomResult = JoinOrCreateRoomAck | ErrorPayload;
 export interface RollSuccessPayload {
@@ -176,6 +180,7 @@ export interface ServerToClientEvents {
   room_state: (state: RoomState) => void;
   "room:state": (state: RoomState) => void;
   "game:diceRolled": (payload: DiceRolledPayload) => void;
+  "game:systemEvent": (payload: GameSystemEventPayload) => void;
   error: (error: SocketErrorPayload) => void;
 }
 

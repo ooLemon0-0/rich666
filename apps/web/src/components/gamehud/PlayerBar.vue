@@ -13,6 +13,7 @@ const roomStore = useRoomStore();
       :key="player.playerId"
       class="player-card"
       :class="{ self: player.playerId === roomStore.selfPlayerId }"
+      :style="{ '--role-color': getCharacterVisual(player.selectedCharacterId).color }"
     >
       <img
         class="avatar"
@@ -43,14 +44,15 @@ const roomStore = useRoomStore();
   gap: 10px;
   padding: 10px;
   border-radius: 12px;
-  border: 1px solid rgba(191, 219, 254, 0.8);
+  border: 2px solid color-mix(in srgb, var(--role-color, #93c5fd) 72%, #dbeafe);
   background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--role-color, #93c5fd) 28%, transparent);
 }
 .player-card.self {
-  border-color: #60a5fa;
+  border-color: color-mix(in srgb, var(--role-color, #60a5fa) 88%, #ffffff);
   box-shadow:
-    0 0 0 2px rgba(96, 165, 250, 0.22),
-    0 0 18px rgba(96, 165, 250, 0.24);
+    0 0 0 2px color-mix(in srgb, var(--role-color, #60a5fa) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--role-color, #60a5fa) 34%, transparent);
 }
 .avatar {
   width: 52px;

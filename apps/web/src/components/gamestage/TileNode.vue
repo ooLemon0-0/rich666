@@ -9,8 +9,8 @@ interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  widthPx: number;
-  heightPx: number;
+  wPct: number;
+  hPct: number;
   isCorner: boolean;
 }
 
@@ -19,8 +19,10 @@ const props = defineProps<{
   tile: BoardTileConfig;
   point: RoutePoint;
   ownerCharacterId: string | null;
-  width: number;
-  height: number;
+  widthPct: number;
+  heightPct: number;
+  runtimePrice?: number | null;
+  runtimeRent?: number | null;
   isCorner?: boolean;
   selected?: boolean;
   occupants: Array<{ playerId: string; avatarUrl: string; color: string }>;
@@ -35,6 +37,9 @@ const ROTATE_OFFSET_DEG = 2;
 const ownerColor = computed(() => getCharacterColor(props.ownerCharacterId));
 const ownerVisual = computed(() => getCharacterVisual(props.ownerCharacterId));
 const nameClass = computed(() => (props.tile.nameZh.length >= 4 ? "name long" : "name"));
+const shownPrice = computed(() => props.runtimePrice ?? (props.tile.type === "property" ? props.tile.price : 0));
+const shownRent = computed(() => props.runtimeRent ?? (props.tile.type === "property" ? props.tile.toll : 0));
+const amountLabel = computed(() => (props.ownerCharacterId ? `🚧 ${shownRent.value}` : `💰 ${shownPrice.value}`));
 
 function getTokenOffset(index: number, total: number): { x: number; y: number } {
   if (total <= 1) {
@@ -65,12 +70,13 @@ function handleClick(): void {
 <template>
   <article
     class="tile-node"
-    :class="[tile.type, { selected: props.selected, corner: props.isCorner }]"
+    :class="[tile.type, { selected: props.selected, corner: props.isCorner, unowned: !ownerCharacterId }]"
     :style="{
       left: `${point.xPct}%`,
       top: `${point.yPct}%`,
-      '--tile-w': `${props.width}px`,
-      '--tile-h': `${props.height}px`,
+      '--tile-w': `${props.widthPct}%`,
+      '--tile-h': `${props.heightPct}%`,
+      '--owner-color': ownerColor,
       '--base-rotate': `${point.angle}deg`,
       '--extra-rotate': props.selected ? `${ROTATE_OFFSET_DEG}deg` : '0deg'
     }"
@@ -89,6 +95,7 @@ function handleClick(): void {
       <span v-if="tile.type === 'property'" class="zhou">{{ tile.tagIcon }}</span>
       <span v-else class="special-icon">{{ tile.icon }}</span>
       <span :class="nameClass">{{ tile.nameZh }}</span>
+      <span v-if="tile.type === 'property'" class="amount" :class="{ rent: !!ownerCharacterId }">{{ amountLabel }}</span>
       <div class="tokens" :class="`count-${Math.min(occupants.length, 6)}`">
         <span
           v-for="(player, index) in occupants.slice(0, 6)"
@@ -112,7 +119,7 @@ function handleClick(): void {
   width: var(--tile-w);
   height: var(--tile-h);
   border-radius: 14px;
-  border: 2px solid rgba(148, 163, 184, 0.8);
+  border: 2px solid color-mix(in srgb, var(--owner-color, #94a3b8) 70%, #94a3b8);
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.18);
   background: rgba(255, 255, 255, 0.92);
   transform: translate(-50%, -50%) rotate(calc(var(--base-rotate) + var(--extra-rotate)));
@@ -131,7 +138,11 @@ function handleClick(): void {
     0 0 0 2px rgba(186, 230, 253, 0.95);
 }
 .tile-node.property {
-  border-color: rgba(59, 130, 246, 0.65);
+  background: color-mix(in srgb, var(--owner-color, #ffffff) 18%, rgba(255, 255, 255, 0.92));
+}
+.tile-node.property.unowned {
+  border-color: rgba(148, 163, 184, 0.8);
+  background: rgba(255, 255, 255, 0.93);
 }
 .tile-node.special {
   border-color: rgba(251, 146, 60, 0.75);
@@ -226,6 +237,19 @@ function handleClick(): void {
 }
 .tile-node.corner .name.long {
   font-size: 16px;
+}
+.amount {
+  margin-top: 2px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #92400e;
+  background: rgba(254, 243, 199, 0.92);
+}
+.amount.rent {
+  color: #155e75;
+  background: rgba(207, 250, 254, 0.94);
 }
 .tokens {
   position: absolute;

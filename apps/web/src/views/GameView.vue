@@ -33,17 +33,6 @@ watch(
 );
 
 watch(
-  () => roomStore.diceRolledEvent?.seq,
-  () => {
-    const payload = roomStore.diceRolledEvent?.payload;
-    if (!payload || !lyricRef.value) {
-      return;
-    }
-    lyricRef.value.pushEvent(`${payload.playerId} 掷出了 ${payload.value}`);
-  }
-);
-
-watch(
   () => roomStore.systemMessages[0]?.id,
   () => {
     const latest = roomStore.systemMessages[0];
@@ -132,6 +121,9 @@ async function leaveToLobby(): Promise<void> {
   padding: 12px;
   display: grid;
   gap: 10px;
+  height: 100dvh;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .top-hud {
   display: grid;
@@ -176,6 +168,10 @@ async function leaveToLobby(): Promise<void> {
   grid-template-columns: 220px minmax(0, 1fr) 300px;
   gap: 10px;
   align-items: start;
+  min-height: 0;
+}
+.center {
+  min-width: 0;
 }
 .right {
   display: grid;

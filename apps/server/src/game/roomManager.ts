@@ -13,6 +13,7 @@ import {
   type Tile,
   type TradeActionSuccessPayload
 } from "@rich/shared";
+import { getTileConfig, getTileDisplayName } from "./tilesConfig.js";
 
 interface RoomRecord {
   state: RoomState;
@@ -69,6 +70,7 @@ export interface RollResult {
   ok: boolean;
   state?: RoomState;
   result?: RollSuccessPayload;
+  events?: string[];
   code?: RollFailureCode;
 }
 
@@ -76,6 +78,7 @@ export interface TradeResult {
   ok: boolean;
   state?: RoomState;
   result?: TradeActionSuccessPayload;
+  events?: string[];
   code?: TradeFailureCode;
 }
 
@@ -102,6 +105,24 @@ const spectatorToSocket = new Map<string, string>();
 const ROOM_SIZE_LIMIT = 6;
 const DISCONNECTED_GRACE_MS = 60_000;
 const ROOM_IDLE_TTL_MS = 10 * 60_000;
+const CHARACTER_NAME_MAP: Record<string, string> = {
+  caocao: "曹操",
+  zhugeliang: "诸葛亮",
+  liubei: "刘备",
+  taishici: "太史慈",
+  guanyu: "关羽",
+  zhangfei: "张飞",
+  zhaoyun: "赵云",
+  diaochan: "貂蝉",
+  lvbu: "吕布",
+  machao: "马超",
+  simayi: "司马懿",
+  wanglang: "王朗",
+  luxun: "陆逊",
+  hejin: "何进",
+  jiangwei: "姜维",
+  pangtong: "庞统"
+};
 
 function randomId(length = 6): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -230,22 +251,13 @@ export function gcStaleRooms(): void {
 
 function createBoard(): Tile[] {
   return Array.from({ length: BOARD_SIZE }, (_unused, index) => {
-    if (index === 0) {
-      return {
-        index,
-        ownerPlayerId: null,
-        ownerCharacterId: null,
-        price: 0,
-        rent: 0
-      };
-    }
-    const price = 200 + index * 10;
+    const config = getTileConfig(index);
     return {
       index,
       ownerPlayerId: null,
-        ownerCharacterId: null,
-      price,
-      rent: Math.floor(price * 0.1)
+      ownerCharacterId: null,
+      price: config.price,
+      rent: config.rent
     };
   });
 }
@@ -444,6 +456,16 @@ function getCurrentPlayer(state: RoomState, playerId: PlayerId): Player | null {
   return state.players.find((player) => player.playerId === playerId) ?? null;
 }
 
+function getRoleName(player: Player | null | undefined): string {
+  if (!player) {
+    return "某玩家";
+  }
+  if (player.selectedCharacterId) {
+    return CHARACTER_NAME_MAP[player.selectedCharacterId] ?? player.selectedCharacterId;
+  }
+  return player.nickname || "某玩家";
+}
+
 export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   const playerRef = socketToPlayer.get(socketId);
   if (!playerRef) {
@@ -481,6 +503,7 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
 
   const dice = randomDice();
   const player = record.state.players[currentPlayerIndex];
+  const events: string[] = [];
   const nextPosition = (player.position + dice) % BOARD_SIZE;
 
   record.state.phase = "moving";
@@ -492,24 +515,39 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   record.state.pendingBuyTileIndex = null;
 
   const landedTile = record.state.board[nextPosition];
-  if (landedTile.index !== 0) {
-    if (landedTile.ownerPlayerId && landedTile.ownerPlayerId !== player.playerId) {
+  const roleName = getRoleName(player);
+  const tileName = getTileDisplayName(roomId, nextPosition);
+  events.push(`${roleName} 抵达 ${tileName}`);
+  const landedConfig = getTileConfig(nextPosition);
+  if (landedConfig.kind === "property") {
+    if (!landedTile.ownerPlayerId) {
+      record.state.phase = "can_buy";
+      record.state.pendingBuyTileIndex = landedTile.index;
+      events.push(`${roleName} 可购买 ${tileName}（${landedTile.price}）`);
+    } else if (landedTile.ownerPlayerId && landedTile.ownerPlayerId !== player.playerId) {
       const owner = getCurrentPlayer(record.state, landedTile.ownerPlayerId);
       if (owner) {
         const payment = Math.min(player.cash, landedTile.rent);
         player.cash -= payment;
         owner.cash += payment;
+        events.push(`${roleName} 向 ${getRoleName(owner)} 支付过路费 ${payment}`);
       }
+      // after rent settlement, advance turn immediately
+      advanceTurn(record.state);
+    } else {
+      // stepping on own property, simply continue turn progression
+      advanceTurn(record.state);
     }
+  } else {
+    // start/safe tile, no buy flow
+    advanceTurn(record.state);
   }
-  // Server-authoritative turn state machine:
-  // every valid roll resolves and immediately advances to next turn.
-  advanceTurn(record.state);
   touchRoom(record);
 
   return {
     ok: true,
     state: record.state,
+    events,
     result: {
       ok: true,
       roomId,
@@ -561,6 +599,9 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
   if (tileIndex === null) {
     return { ok: false, code: "TILE_NOT_BUYABLE" };
   }
+  if (getTileConfig(tileIndex).kind !== "property") {
+    return { ok: false, code: "TILE_NOT_BUYABLE" };
+  }
   const tile = validation.state.board[tileIndex];
   if (!tile || tile.index === 0 || tile.ownerPlayerId) {
     return { ok: false, code: "TILE_NOT_BUYABLE" };
@@ -575,6 +616,7 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
   validation.player.cash -= tile.price;
   tile.ownerPlayerId = validation.player.playerId;
   tile.ownerCharacterId = validation.player.selectedCharacterId;
+  const events = [`${getRoleName(validation.player)} 购买了 ${getTileDisplayName(roomId, tile.index)}`];
   advanceTurn(validation.state);
   const record = rooms.get(roomId);
   if (record) {
@@ -584,6 +626,7 @@ export function buyRequest(socketId: string, roomId: RoomId): TradeResult {
   return {
     ok: true,
     state: validation.state,
+    events,
     result: {
       ok: true,
       roomId,
@@ -599,6 +642,11 @@ export function skipBuy(socketId: string, roomId: RoomId): TradeResult {
     return { ok: false, code: validation.code ?? "ROOM_NOT_FOUND" };
   }
 
+  const tileIndex = validation.state.pendingBuyTileIndex;
+  const events =
+    tileIndex === null
+      ? []
+      : [`${getRoleName(validation.player)} 放弃购买 ${getTileDisplayName(roomId, tileIndex)}`];
   advanceTurn(validation.state);
   const record = rooms.get(roomId);
   if (record) {
@@ -607,6 +655,7 @@ export function skipBuy(socketId: string, roomId: RoomId): TradeResult {
   return {
     ok: true,
     state: validation.state,
+    events,
     result: {
       ok: true,
       roomId,

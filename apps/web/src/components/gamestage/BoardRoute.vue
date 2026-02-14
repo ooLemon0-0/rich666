@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { nextTick, onMounted, watch } from "vue";
-import { layoutRectBoardV2 } from "../../game/layout/layoutRectBoardV2";
+import { layoutRectBoardFit } from "../../game/layout/layoutRectBoardFit";
 
 interface RoutePoint {
   xPct: number;
   yPct: number;
   angle: number;
-  widthPx: number;
-  heightPx: number;
+  wPct: number;
+  hPct: number;
   isCorner: boolean;
 }
 
@@ -22,24 +22,19 @@ const emit = defineEmits<{
 
 const VIEW_WIDTH = 1000;
 const VIEW_HEIGHT = 680;
-const CORNER_BASE_SIZE = 140;
-const EDGE_BASE_SIZE = 102;
-
 function computePoints(): void {
   if (props.tileCount <= 0) {
     emit("pointsChange", []);
     emit("tileScaleChange", 1);
     return;
   }
-  const result = layoutRectBoardV2({
+  const result = layoutRectBoardFit({
     stageWidth: VIEW_WIDTH,
     stageHeight: VIEW_HEIGHT,
     tileCount: props.tileCount,
-    cornerSize: CORNER_BASE_SIZE,
-    edgeSize: EDGE_BASE_SIZE,
-    margin: 44,
-    minScale: 0.66,
-    safetyGap: 2
+    cornerSize: 142,
+    edgeSize: 104,
+    margin: 42
   });
   emit("tileScaleChange", result.boardScale);
   emit("pointsChange", result.points);
