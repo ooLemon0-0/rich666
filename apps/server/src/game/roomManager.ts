@@ -14,6 +14,7 @@ import {
   type TradeActionSuccessPayload
 } from "@rich/shared";
 import { getTileConfig, getTileDisplayName } from "./tilesConfig.js";
+import { checkTileSpecialHook } from "./specialHook.js";
 
 interface RoomRecord {
   state: RoomState;
@@ -518,6 +519,25 @@ export function rollRequest(socketId: string, roomId: RoomId): RollResult {
   const roleName = getRoleName(player);
   const tileName = getTileDisplayName(roomId, nextPosition);
   events.push(`${roleName} 抵达 ${tileName}`);
+  const specialHook = checkTileSpecialHook(roomId, nextPosition, player.selectedCharacterId, record.state);
+  if (specialHook.handled) {
+    if (specialHook.message) {
+      events.push(specialHook.message);
+    }
+    touchRoom(record);
+    return {
+      ok: true,
+      state: record.state,
+      events,
+      result: {
+        ok: true,
+        roomId,
+        playerId: player.playerId,
+        dice,
+        position: nextPosition
+      }
+    };
+  }
   const landedConfig = getTileConfig(nextPosition);
   if (landedConfig.kind === "property") {
     if (!landedTile.ownerPlayerId) {

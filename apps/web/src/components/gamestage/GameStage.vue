@@ -18,6 +18,57 @@ interface RoutePoint {
   isCorner: boolean;
 }
 
+function buildFallbackRoutePoints(count: number): RoutePoint[] {
+  if (count <= 0) {
+    return [];
+  }
+  const points: RoutePoint[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const side = Math.floor(i / 10);
+    const slot = i % 10;
+    const isCorner = slot === 0;
+    const edgeStep = 80 / 9;
+    if (side === 0) {
+      points.push({
+        xPct: isCorner ? 10 : 10 + slot * edgeStep,
+        yPct: 10,
+        angle: 0,
+        wPct: isCorner ? 12 : 8,
+        hPct: isCorner ? 12 : 8,
+        isCorner
+      });
+    } else if (side === 1) {
+      points.push({
+        xPct: 90,
+        yPct: isCorner ? 10 : 10 + slot * edgeStep,
+        angle: 90,
+        wPct: isCorner ? 12 : 8,
+        hPct: isCorner ? 12 : 8,
+        isCorner
+      });
+    } else if (side === 2) {
+      points.push({
+        xPct: isCorner ? 90 : 90 - slot * edgeStep,
+        yPct: 90,
+        angle: 180,
+        wPct: isCorner ? 12 : 8,
+        hPct: isCorner ? 12 : 8,
+        isCorner
+      });
+    } else {
+      points.push({
+        xPct: 10,
+        yPct: isCorner ? 90 : 90 - slot * edgeStep,
+        angle: 270,
+        wPct: isCorner ? 12 : 8,
+        hPct: isCorner ? 12 : 8,
+        isCorner
+      });
+    }
+  }
+  return points;
+}
+
 const roomStore = useRoomStore();
 const stageRef = ref<HTMLElement | null>(null);
 const routePoints = ref<RoutePoint[]>([]);
@@ -32,7 +83,12 @@ const layoutStatus = ref({
 });
 const stageReady = computed(() => stageRect.value.width >= 300 && stageRect.value.height >= 300);
 const tiles = computed(() => roomStore.tilesToRender);
-const tilesRenderable = computed(() => stageReady.value && layoutStatus.value.rendered && routePoints.value.length === tiles.value.length);
+const hasValidLayout = computed(() => layoutStatus.value.rendered && routePoints.value.length === tiles.value.length);
+const renderPoints = computed(() =>
+  hasValidLayout.value ? routePoints.value : buildFallbackRoutePoints(tiles.value.length)
+);
+const tilesRenderable = computed(() => tiles.value.length > 0);
+const tilesInvalid = computed(() => debugState.enabled && tiles.value.length !== 40);
 let resizeObserver: ResizeObserver | null = null;
 let resizeRaf = 0;
 let errorHandler: ((event: ErrorEvent) => void) | null = null;
@@ -212,10 +268,10 @@ watch(
       :key="tile.id"
       :tile-index="index"
       :tile="tile"
-      :point="routePoints[index] ?? { xPct: 50, yPct: 50, angle: 0, wPct: 10, hPct: 10, isCorner: false }"
-      :width-pct="routePoints[index]?.wPct ?? 10"
-      :height-pct="routePoints[index]?.hPct ?? 10"
-      :is-corner="routePoints[index]?.isCorner ?? false"
+      :point="renderPoints[index] ?? { xPct: 50, yPct: 50, angle: 0, wPct: 10, hPct: 10, isCorner: false }"
+      :width-pct="renderPoints[index]?.wPct ?? 10"
+      :height-pct="renderPoints[index]?.hPct ?? 10"
+      :is-corner="renderPoints[index]?.isCorner ?? false"
       :owner-character-id="ownerCharacterByIndex[index] ?? null"
       :runtime-price="roomStore.roomState?.board[index]?.price ?? null"
       :runtime-rent="roomStore.roomState?.board[index]?.rent ?? null"
@@ -238,6 +294,7 @@ watch(
       @buy="handleBuySelectedTile"
     />
     <div v-if="!tilesRenderable" class="board-loading">Loading board...</div>
+    <div v-if="tilesInvalid" class="tiles-invalid">Tiles invalid: {{ tiles.length }}</div>
   </section>
 </template>
 
@@ -291,6 +348,15 @@ watch(
   color: #0f172a;
   font-weight: 700;
   background: rgba(255, 255, 255, 0.85);
+  z-index: 12;
+}
+.tiles-invalid {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  transform: translateX(-50%);
+  color: #b91c1c;
+  font-weight: 800;
   z-index: 12;
 }
 @media (max-height: 840px) {

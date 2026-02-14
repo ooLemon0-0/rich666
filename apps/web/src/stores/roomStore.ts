@@ -4,6 +4,7 @@ import type { DiceRolledPayload, GameStaticConfigPayload, RoomState, SelfRole } 
 import { createSocketClient, type ConnectionStatus } from "../socket";
 import { getCharacterVisual } from "../game/characters/characters";
 import { BOARD_TILES, type BoardTileConfig } from "../game/board/boardConfig";
+import { FALLBACK_TILES_40 } from "../game/fallback/fallbackTiles40";
 import { setTilesDebug } from "../debug/debugStore";
 
 function normalizeRoomCode(raw: string): string {
@@ -29,37 +30,6 @@ function getOrCreatePlayerToken(): string {
     : `pt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   localStorage.setItem(PLAYER_TOKEN_KEY, token);
   return token;
-}
-
-function createFallbackTiles40(): BoardTileConfig[] {
-  if (BOARD_TILES.length === 40) {
-    return BOARD_TILES;
-  }
-  return Array.from({ length: 40 }, (_unused, index) => {
-    const isCorner = index % 10 === 0;
-    if (isCorner) {
-      const specialName = index === 0 ? "起点" : index === 10 ? "转角" : index === 20 ? "牢狱" : "命运";
-      return {
-        id: `fallback-special-${index}`,
-        type: "special",
-        nameZh: specialName,
-        icon: "✨"
-      };
-    }
-    return {
-      id: `fallback-property-${index}`,
-      type: "property",
-      nameZh: `地块${index}`,
-      zhouKey: "豫",
-      zhouName: "中原",
-      tagIcon: "豫",
-      setBonusRentMul: 1.2,
-      price: 200 + index * 10,
-      toll: 40 + index * 3,
-      buildCost: 160 + index * 8,
-      level: 0
-    };
-  });
 }
 
 function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTileConfig[] {
@@ -88,7 +58,7 @@ function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTil
   });
 }
 
-const FALLBACK_TILES_40 = createFallbackTiles40();
+const FALLBACK_TILES_40_LOCAL: BoardTileConfig[] = BOARD_TILES.length === 40 ? BOARD_TILES : FALLBACK_TILES_40;
 
 export const useRoomStore = defineStore("room_ui", () => {
   const socketClient = createSocketClient();
@@ -170,7 +140,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const tilesToRender = computed<BoardTileConfig[]>(() => {
     const mapped = staticConfig.value?.tiles?.length === 40 ? mapStaticConfigToBoardTiles(staticConfig.value) : null;
     const usingFallback = !mapped;
-    const tiles = mapped ?? FALLBACK_TILES_40;
+    const tiles = mapped ?? FALLBACK_TILES_40_LOCAL;
     setTilesDebug({
       loaded: Boolean(mapped),
       usingFallback,
