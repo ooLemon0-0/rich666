@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, watch } from "vue";
 import { layoutRectBoardFit } from "../../game/layout/layoutRectBoardFit";
+import { BOARD_CORNER_INDEXES } from "../../game/board/boardConfig";
 
 interface RoutePoint {
   x: number;
@@ -58,9 +59,16 @@ function computePoints(): void {
       stageWidth: viewWidth.value,
       stageHeight: viewHeight.value,
       tileCount: props.tileCount,
+      corners: [
+        BOARD_CORNER_INDEXES[0],
+        BOARD_CORNER_INDEXES[1],
+        BOARD_CORNER_INDEXES[2],
+        BOARD_CORNER_INDEXES[3]
+      ],
       cornerSize: 142,
       edgeSize: 104,
-      margin: 42
+      margin: 42,
+      gap: 6
     });
     const hasNaN = result.points.some(
       (item) =>

@@ -17,9 +17,11 @@ interface RectBoardFitInput {
   stageWidth: number;
   stageHeight: number;
   tileCount?: number;
+  corners?: [number, number, number, number];
   cornerSize?: number;
   edgeSize?: number;
   margin?: number;
+  gap?: number;
 }
 
 interface AbsPoint {
@@ -34,9 +36,11 @@ interface AbsPoint {
 
 export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult {
   const tileCount = input.tileCount ?? 40;
+  const corners = input.corners ?? [0, 10, 20, 30];
   const cornerBase = input.cornerSize ?? 142;
   const edgeBase = input.edgeSize ?? 104;
   const marginBase = input.margin ?? 42;
+  const gapBase = input.gap ?? 6;
 
   const boardWIdeal = marginBase * 2 + cornerBase * 2 + edgeBase * 8;
   const boardHIdeal = marginBase * 2 + cornerBase * 2 + edgeBase * 8;
@@ -45,6 +49,7 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
   const corner = cornerBase * boardScale;
   const edge = edgeBase * boardScale;
   const margin = marginBase * boardScale;
+  const gap = gapBase * boardScale;
 
   const left = margin + corner / 2;
   const top = margin + corner / 2;
@@ -55,57 +60,71 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
   const innerRight = right - corner / 2;
   const innerTop = top + corner / 2;
   const innerBottom = bottom - corner / 2;
-
-  const stepX = (innerRight - innerLeft) / 8;
-  const stepY = (innerBottom - innerTop) / 8;
   const points: AbsPoint[] = [];
-
-  for (let i = 0; i < tileCount; i += 1) {
-    const side = Math.floor(i / 10);
-    const slot = i % 10;
-    const isCorner = slot === 0;
-    const size = isCorner ? corner : edge;
-    if (side === 0) {
-      points.push({
-        x: isCorner ? left : innerLeft + (slot - 0.5) * stepX,
-        y: top,
-        w: size,
-        h: size,
-        angle: 0,
-        isCorner,
-        side: "top"
-      });
-    } else if (side === 1) {
-      points.push({
-        x: right,
-        y: isCorner ? top : innerTop + (slot - 0.5) * stepY,
-        w: size,
-        h: size,
-        angle: 90,
-        isCorner,
-        side: "right"
-      });
-    } else if (side === 2) {
-      points.push({
-        x: isCorner ? right : innerRight - (slot - 0.5) * stepX,
-        y: bottom,
-        w: size,
-        h: size,
-        angle: 180,
-        isCorner,
-        side: "bottom"
-      });
-    } else {
-      points.push({
-        x: left,
-        y: isCorner ? bottom : innerBottom - (slot - 0.5) * stepY,
-        w: size,
-        h: size,
-        angle: 270,
-        isCorner,
-        side: "left"
-      });
+  const sideDefs = [
+    {
+      start: corners[0],
+      end: corners[1],
+      angle: 0,
+      side: "top" as const,
+      xAt: (t: number) => innerLeft + t * (innerRight - innerLeft),
+      yAt: () => top
+    },
+    {
+      start: corners[1],
+      end: corners[2],
+      angle: 90,
+      side: "right" as const,
+      xAt: () => right,
+      yAt: (t: number) => innerTop + t * (innerBottom - innerTop)
+    },
+    {
+      start: corners[2],
+      end: corners[3],
+      angle: 180,
+      side: "bottom" as const,
+      xAt: (t: number) => innerRight - t * (innerRight - innerLeft),
+      yAt: () => bottom
+    },
+    {
+      start: corners[3],
+      end: corners[0] + tileCount,
+      angle: 270,
+      side: "left" as const,
+      xAt: () => left,
+      yAt: (t: number) => innerBottom - t * (innerBottom - innerTop)
     }
+  ];
+  const cornerPointMap: Record<number, { x: number; y: number }> = {
+    [corners[0]]: { x: left, y: top },
+    [corners[1]]: { x: right, y: top },
+    [corners[2]]: { x: right, y: bottom },
+    [corners[3]]: { x: left, y: bottom }
+  };
+
+  for (let index = 0; index < tileCount; index += 1) {
+    const sideDef = sideDefs.find((def) => {
+      const normalized = index < corners[0] ? index + tileCount : index;
+      return normalized >= def.start && normalized <= def.end;
+    }) ?? sideDefs[0];
+    const normalized = index < corners[0] ? index + tileCount : index;
+    const sideLen = Math.max(1, sideDef.end - sideDef.start);
+    const sideSlot = normalized - sideDef.start;
+    const t = sideLen <= 0 ? 0 : sideSlot / sideLen;
+    const isCorner = corners.includes(index);
+    const size = Math.max(26, (isCorner ? corner : edge) - gap);
+    const cornerPoint = cornerPointMap[index];
+    const x = isCorner && cornerPoint ? cornerPoint.x : sideDef.xAt(t);
+    const y = isCorner && cornerPoint ? cornerPoint.y : sideDef.yAt(t);
+    points.push({
+      x,
+      y,
+      w: size,
+      h: size,
+      angle: sideDef.angle,
+      isCorner,
+      side: sideDef.side
+    });
   }
 
   return {

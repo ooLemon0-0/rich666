@@ -32,6 +32,9 @@ importers:
       '@fastify/cors':
         specifier: ^11.1.0
         version: 11.2.0
+      '@rich/game-config':
+        specifier: workspace:*
+        version: link:../../packages/game-config
       '@rich/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -54,6 +57,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@rich/game-config':
+        specifier: workspace:*
+        version: link:../../packages/game-config
       '@rich/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -82,6 +88,12 @@ importers:
       vue-tsc:
         specifier: ^3.0.6
         version: 3.2.4(typescript@5.9.3)
+
+  packages/game-config:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
 
   packages/shared:
     devDependencies:

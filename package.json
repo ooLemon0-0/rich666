@@ -9,7 +9,7 @@
   "scripts": {
     "dev:web": "npm run dev -w @rich/web",
     "dev:server": "npm run dev -w @rich/server",
-    "build": "npm run build -w @rich/shared && npm run build -w @rich/server && npm run build -w @rich/web",
+    "build": "npm run build -w @rich/shared && npm run build -w @rich/game-config && npm run build -w @rich/server && npm run build -w @rich/web",
     "lint": "npm run lint -w @rich/server && npm run lint -w @rich/web && npm run lint -w @rich/shared"
   },
   "devDependencies": {
