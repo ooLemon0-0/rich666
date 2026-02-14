@@ -31,6 +31,7 @@ const ROTATE_OFFSET_DEG = 2;
 
 const ownerColor = computed(() => getCharacterColor(props.ownerCharacterId));
 const ownerVisual = computed(() => getCharacterVisual(props.ownerCharacterId));
+const nameClass = computed(() => (props.tile.nameZh.length >= 4 ? "name long" : "name"));
 
 function getTokenOffset(index: number, total: number): { x: number; y: number } {
   if (total <= 1) {
@@ -85,7 +86,7 @@ function handleClick(): void {
     <div class="inner" :style="{ transform: `rotate(${-point.angle}deg)` }">
       <span v-if="tile.type === 'property'" class="zhou">{{ tile.tagIcon }}</span>
       <span v-else class="special-icon">{{ tile.icon }}</span>
-      <span class="name">{{ tile.nameZh }}</span>
+      <span :class="nameClass">{{ tile.nameZh }}</span>
       <div class="tokens" :class="`count-${Math.min(occupants.length, 6)}`">
         <span
           v-for="(player, index) in occupants.slice(0, 6)"
@@ -198,12 +199,22 @@ function handleClick(): void {
   background: #ffedd5;
 }
 .name {
-  margin-top: 8px;
-  font-size: 10px;
-  font-weight: 700;
+  margin-top: 12px;
+  font-family: var(--font-game-cartoon, "Comic Sans MS", "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: 15px;
+  font-weight: 800;
   color: #0f172a;
-  line-height: 1.1;
+  line-height: 1.05;
   text-align: center;
+  max-width: 70px;
+  text-wrap: balance;
+  -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.85);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7),
+    0 2px 6px rgba(15, 23, 42, 0.22);
+}
+.name.long {
+  font-size: 13px;
 }
 .tokens {
   position: absolute;

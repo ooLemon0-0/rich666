@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import EventLyric from "../components/gamehud/EventLyric.vue";
 import GameStage from "../components/gamestage/GameStage.vue";
@@ -11,6 +11,10 @@ import { useRoomStore } from "../stores/roomStore";
 const router = useRouter();
 const roomStore = useRoomStore();
 const lyricRef = ref<InstanceType<typeof EventLyric> | null>(null);
+const prevSpectatorConnected = ref(new Set<string>());
+const connectedSpectatorCount = computed(
+  () => roomStore.roomState?.spectators?.filter((item) => item.connected).length ?? 0
+);
 
 watch(
   () => roomStore.roomStatus,
@@ -37,6 +41,34 @@ watch(
   }
 );
 
+watch(
+  () =>
+    (roomStore.roomState?.spectators ?? [])
+      .filter((item) => item.connected)
+      .map((item) => item.spectatorId)
+      .sort(),
+  (nextIds) => {
+    if (!lyricRef.value) {
+      prevSpectatorConnected.value = new Set(nextIds);
+      return;
+    }
+    const prev = prevSpectatorConnected.value;
+    const next = new Set(nextIds);
+    nextIds.forEach((id) => {
+      if (!prev.has(id)) {
+        lyricRef.value?.pushEvent(`观战玩家 ${id} 已加入`);
+      }
+    });
+    prev.forEach((id) => {
+      if (!next.has(id)) {
+        lyricRef.value?.pushEvent(`观战玩家 ${id} 已离开`);
+      }
+    });
+    prevSpectatorConnected.value = next;
+  },
+  { immediate: true }
+);
+
 function pushMockEvent(): void {
   lyricRef.value?.pushEvent(`事件 ${new Date().toLocaleTimeString()}：触发了一次本地模拟`);
 }
@@ -52,6 +84,8 @@ async function leaveToLobby(): Promise<void> {
     <header class="top-hud">
       <PlayerBar />
       <div class="ops">
+        <span class="watching count">观战 {{ connectedSpectatorCount }}</span>
+        <span v-if="roomStore.selfRole === 'spectator'" class="watching">观战中</span>
         <button class="btn ghost" type="button" @click="pushMockEvent">模拟事件</button>
         <button class="btn leave" type="button" @click="leaveToLobby">退出房间</button>
       </div>
@@ -83,6 +117,7 @@ async function leaveToLobby(): Promise<void> {
 .ops {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 .btn {
   border: 0;
@@ -98,6 +133,18 @@ async function leaveToLobby(): Promise<void> {
 .btn.leave {
   color: #fff;
   background: linear-gradient(180deg, #f43f5e, #e11d48);
+}
+.watching {
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #075985;
+  background: #dbeafe;
+}
+.watching.count {
+  color: #0f172a;
+  background: #e0f2fe;
 }
 .hud-grid {
   display: grid;

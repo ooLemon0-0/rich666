@@ -56,8 +56,8 @@ interface SessionSnapshot {
 interface SocketClient {
   connect: () => void;
   disconnect: () => void;
-  createRoom: (nickname: string) => Promise<JoinOrCreateRoomResult>;
-  joinRoom: (roomId: string, nickname: string) => Promise<JoinOrCreateRoomResult>;
+  createRoom: (nickname: string, playerToken: string) => Promise<JoinOrCreateRoomResult>;
+  joinRoom: (roomId: string, nickname: string, playerToken: string) => Promise<JoinOrCreateRoomResult>;
   rollRequest: (roomId: string) => Promise<RollRequestResult>;
   buyRequest: (roomId: string) => Promise<TradeActionResult>;
   skipBuy: (roomId: string) => Promise<TradeActionResult>;
@@ -248,16 +248,16 @@ export function createSocketClient(): SocketClient {
       socket.disconnect();
       emitConnectionStatus("disconnected");
     },
-    createRoom(nickname) {
+    createRoom(nickname, playerToken) {
       const socket = getSocket();
       return withAck<JoinOrCreateRoomResult>((ack) => {
-        socket.emit("create_room", { nickname }, ack);
+        socket.emit("create_room", { nickname, playerToken }, ack);
       });
     },
-    joinRoom(roomId, nickname) {
+    joinRoom(roomId, nickname, playerToken) {
       const socket = getSocket();
       return withAck<JoinOrCreateRoomResult>((ack) => {
-        socket.emit("join_room", { roomId, nickname }, ack);
+        socket.emit("join_room", { roomId, nickname, playerToken }, ack);
       });
     },
     rollRequest(roomId) {

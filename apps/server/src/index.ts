@@ -206,12 +206,13 @@ io.on("connection", (socket) => {
 
   socket.on("create_room", (payload: CreateRoomPayload, ack) => {
     const nickname = normalizeNickname(payload.nickname);
-    if (!nickname) {
-      ackAndEmitError(socket.id, ack, invalidPayload("昵称不能为空"));
+    const playerToken = payload.playerToken?.trim();
+    if (!nickname || !playerToken) {
+      ackAndEmitError(socket.id, ack, invalidPayload("昵称和 playerToken 不能为空"));
       return;
     }
 
-    const state = createRoom(socket.id, nickname);
+    const state = createRoom(socket.id, nickname, playerToken);
     const playerRef = getPlayerRefBySocket(socket.id);
     if (!playerRef) {
       ackAndEmitError(socket.id, ack, roomNotFound());
@@ -224,7 +225,8 @@ io.on("connection", (socket) => {
     const result: JoinOrCreateRoomResult = {
       ok: true,
       roomId: state.roomId,
-      playerId: playerRef.playerId
+      playerId: playerRef.playerId,
+      role: "player"
     };
     ack(result);
     emitRoomState(state.roomId, state);
@@ -234,13 +236,14 @@ io.on("connection", (socket) => {
   socket.on("join_room", (payload: JoinRoomPayload, ack) => {
     const nickname = normalizeNickname(payload.nickname);
     const roomId = payload.roomId.trim().toUpperCase();
+    const playerToken = payload.playerToken?.trim();
 
-    if (!nickname || !roomId) {
-      ackAndEmitError(socket.id, ack, invalidPayload("roomId 和昵称不能为空"));
+    if (!nickname || !roomId || !playerToken) {
+      ackAndEmitError(socket.id, ack, invalidPayload("roomId、昵称和 playerToken 不能为空"));
       return;
     }
 
-    const joinResult = joinRoom(socket.id, roomId, nickname);
+    const joinResult = joinRoom(socket.id, roomId, nickname, playerToken);
     if (!joinResult.ok || !joinResult.state) {
       let error: ErrorPayload = roomNotFound();
       if (joinResult.code === "ROOM_FULL") {
@@ -253,19 +256,16 @@ io.on("connection", (socket) => {
     }
     const state = joinResult.state;
 
-    const playerRef = getPlayerRefBySocket(socket.id);
-    if (!playerRef) {
-      ackAndEmitError(socket.id, ack, roomNotFound());
-      return;
-    }
-    socket.data.playerId = playerRef.playerId;
+    socket.data.playerId = joinResult.playerId;
     socket.data.roomId = state.roomId;
     socket.join(state.roomId);
 
     const result: JoinOrCreateRoomResult = {
       ok: true,
       roomId: state.roomId,
-      playerId: playerRef.playerId
+      playerId: joinResult.playerId ?? "",
+      role: joinResult.role ?? "player",
+      reconnected: joinResult.reconnected
     };
     ack(result);
     emitRoomState(state.roomId, state);

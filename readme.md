@@ -28,3 +28,17 @@ npm run dev:web
 
 - 前端：`http://localhost:5173`
 - 后端：`http://localhost:3000`
+
+
+部署指令：
+
+cd /opt/rich666
+git pull
+pnpm install --frozen-lockfile
+pnpm -r build
+
+sudo rm -rf /var/www/rich666/games/rich666/*
+sudo cp -r apps/web/dist/* /var/www/rich666/games/rich666/
+
+pm2 restart all
+pm2 logs --lines 60

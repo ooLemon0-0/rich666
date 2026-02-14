@@ -1,6 +1,6 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import type { DiceRolledPayload, RoomState } from "@rich/shared";
+import type { DiceRolledPayload, RoomState, SelfRole } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 
 function normalizeRoomCode(raw: string): string {
@@ -14,10 +14,25 @@ function randomGuestName(): string {
   return `玩家${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
+const PLAYER_TOKEN_KEY = "rich:player-token";
+
+function getOrCreatePlayerToken(): string {
+  const cached = localStorage.getItem(PLAYER_TOKEN_KEY)?.trim();
+  if (cached) {
+    return cached;
+  }
+  const token = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `pt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  localStorage.setItem(PLAYER_TOKEN_KEY, token);
+  return token;
+}
+
 export const useRoomStore = defineStore("room_ui", () => {
   const socketClient = createSocketClient();
   const roomState = ref<RoomState | null>(null);
   const playerId = ref("");
+  const selfRole = ref<SelfRole>("player");
   const nickname = ref(randomGuestName());
   const connectionStatus = ref<ConnectionStatus>(socketClient.getStatus());
   const showJoinModal = ref(false);
@@ -71,7 +86,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     () => players.value.filter((item) => item.connected).length > 0 &&
       players.value.filter((item) => item.connected).every((item) => item.ready)
   );
-  const canReady = computed(() => Boolean(selectedCharacterId.value));
+  const canReady = computed(() => selfRole.value === "player" && Boolean(selectedCharacterId.value));
   const canStart = computed(
     () =>
       roomStatus.value === "waiting" &&
@@ -128,6 +143,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const canRoll = computed(
     () =>
       Boolean(roomState.value) &&
+      selfRole.value === "player" &&
       roomStatus.value === "in_game" &&
       roomState.value?.phase === "rolling" &&
       roomState.value.currentTurnPlayerId === playerId.value
@@ -137,6 +153,7 @@ export const useRoomStore = defineStore("room_ui", () => {
       return false;
     }
     return (
+      selfRole.value === "player" &&
       roomStatus.value === "in_game" &&
       roomState.value.phase === "can_buy" &&
       roomState.value.currentTurnPlayerId === playerId.value &&
@@ -148,6 +165,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const canSkipBuy = computed(
     () =>
       Boolean(roomState.value) &&
+      selfRole.value === "player" &&
       roomStatus.value === "in_game" &&
       roomState.value?.phase === "can_buy" &&
       roomState.value.currentTurnPlayerId === playerId.value
@@ -163,9 +181,10 @@ export const useRoomStore = defineStore("room_ui", () => {
     showJoinModal.value = false;
   }
 
-  function onJoinSuccess(nextPlayerId: string): void {
+  function onJoinSuccess(nextPlayerId: string, role: SelfRole, reconnected = false): void {
     playerId.value = nextPlayerId;
-    showCharacterModal.value = true;
+    selfRole.value = role;
+    showCharacterModal.value = role === "player" && !reconnected;
     showJoinModal.value = false;
     localError.value = "";
     lastJoinErrorCode.value = "";
@@ -180,7 +199,8 @@ export const useRoomStore = defineStore("room_ui", () => {
     }
     socketClient.clearSession();
     socketClient.connect();
-    const result = await socketClient.createRoom(nickname.value);
+    const playerToken = getOrCreatePlayerToken();
+    const result = await socketClient.createRoom(nickname.value, playerToken);
     actionPending.value = false;
     if (!result.ok) {
       localError.value = result.message;
@@ -188,7 +208,7 @@ export const useRoomStore = defineStore("room_ui", () => {
       return false;
     }
     socketClient.setSession({ roomId: result.roomId, playerId: result.playerId });
-    onJoinSuccess(result.playerId);
+    onJoinSuccess(result.playerId, result.role ?? "player", result.reconnected ?? false);
     return true;
   }
 
@@ -207,7 +227,8 @@ export const useRoomStore = defineStore("room_ui", () => {
     }
     socketClient.clearSession();
     socketClient.connect();
-    const result = await socketClient.joinRoom(normalized, nickname.value);
+    const playerToken = getOrCreatePlayerToken();
+    const result = await socketClient.joinRoom(normalized, nickname.value, playerToken);
     actionPending.value = false;
     if (!result.ok) {
       localError.value = result.message;
@@ -215,7 +236,7 @@ export const useRoomStore = defineStore("room_ui", () => {
       return false;
     }
     socketClient.setSession({ roomId: result.roomId, playerId: result.playerId });
-    onJoinSuccess(result.playerId);
+    onJoinSuccess(result.playerId, result.role ?? "player", result.reconnected ?? false);
     return true;
   }
 
@@ -294,7 +315,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   }
 
   function openCharacterModal(): void {
-    if (!roomState.value || roomStatus.value !== "waiting") {
+    if (!roomState.value || roomStatus.value !== "waiting" || selfRole.value !== "player") {
       return;
     }
     showCharacterModal.value = true;
@@ -306,6 +327,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     socketClient.clearSession();
     roomState.value = null;
     playerId.value = "";
+    selfRole.value = "player";
     showJoinModal.value = false;
     showCharacterModal.value = false;
     localError.value = "";
@@ -365,6 +387,7 @@ export const useRoomStore = defineStore("room_ui", () => {
   const storedSession = socketClient.getSession();
   if (storedSession) {
     playerId.value = storedSession.playerId;
+    selfRole.value = "player";
     socketClient.connect();
   }
 
@@ -394,6 +417,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     diceRolledEvent,
     roomId,
     roomState,
+    selfRole,
     roomStatus,
     maxPlayers,
     connectedPlayersCount,

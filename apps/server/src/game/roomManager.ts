@@ -2,6 +2,8 @@ import {
   BOARD_SIZE,
   type Player,
   type PlayerId,
+  type SelfRole,
+  type Spectator,
   type RoomActionSuccessPayload,
   type ReconnectSuccessPayload,
   type RollSuccessPayload,
@@ -19,6 +21,11 @@ interface RoomRecord {
 interface PlayerRef {
   roomId: RoomId;
   playerId: PlayerId;
+}
+
+interface SpectatorRef {
+  roomId: RoomId;
+  spectatorId: string;
 }
 
 export type JoinRoomFailureCode = "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROOM_ENDED";
@@ -51,6 +58,9 @@ export type RoomActionFailureCode =
 export interface JoinRoomResult {
   ok: boolean;
   state?: RoomState;
+  role?: SelfRole;
+  playerId?: string;
+  reconnected?: boolean;
   code?: JoinRoomFailureCode;
 }
 
@@ -85,7 +95,9 @@ export interface RoomActionResult {
 const rooms = new Map<RoomId, RoomRecord>();
 const endedRooms = new Set<RoomId>();
 const socketToPlayer = new Map<string, PlayerRef>();
+const socketToSpectator = new Map<string, SpectatorRef>();
 const playerToSocket = new Map<string, string>();
+const spectatorToSocket = new Map<string, string>();
 const ROOM_SIZE_LIMIT = 6;
 
 function randomId(length = 6): string {
@@ -101,8 +113,16 @@ function randomPlayerId(): PlayerId {
   return `P${randomId(8)}`;
 }
 
+function randomSpectatorId(): string {
+  return `S${randomId(8)}`;
+}
+
 function roomPlayerKey(roomId: RoomId, playerId: PlayerId): string {
   return `${roomId}:${playerId}`;
+}
+
+function roomSpectatorKey(roomId: RoomId, spectatorId: string): string {
+  return `${roomId}:${spectatorId}`;
 }
 
 function generateUniqueRoomId(): RoomId {
@@ -113,7 +133,7 @@ function generateUniqueRoomId(): RoomId {
   return roomId;
 }
 
-function buildPlayer(playerId: PlayerId, nickname: string): Player {
+function buildPlayer(playerId: PlayerId, nickname: string, playerToken: string): Player {
   return {
     playerId,
     nickname,
@@ -122,7 +142,18 @@ function buildPlayer(playerId: PlayerId, nickname: string): Player {
     connected: true,
     joinedAt: Date.now(),
     ready: false,
-    selectedCharacterId: null
+    selectedCharacterId: null,
+    playerToken
+  };
+}
+
+function buildSpectator(nickname: string, playerToken: string): Spectator {
+  return {
+    spectatorId: randomSpectatorId(),
+    nickname,
+    connected: true,
+    joinedAt: Date.now(),
+    playerToken
   };
 }
 
@@ -152,8 +183,8 @@ function createBoard(): Tile[] {
   });
 }
 
-export function createRoom(socketId: string, nickname: string): RoomState {
-  const player = buildPlayer(randomPlayerId(), nickname);
+export function createRoom(socketId: string, nickname: string, playerToken: string): RoomState {
+  const player = buildPlayer(randomPlayerId(), nickname, playerToken);
   const roomId = generateUniqueRoomId();
 
   const state: RoomState = {
@@ -164,6 +195,7 @@ export function createRoom(socketId: string, nickname: string): RoomState {
     currentTurnPlayerId: player.playerId,
     phase: "waiting",
     board: createBoard(),
+    spectators: [],
     pendingBuyTileIndex: null,
     lastRoll: null
   };
@@ -176,7 +208,7 @@ export function createRoom(socketId: string, nickname: string): RoomState {
   return state;
 }
 
-export function joinRoom(socketId: string, roomId: RoomId, nickname: string): JoinRoomResult {
+export function joinRoom(socketId: string, roomId: RoomId, nickname: string, playerToken: string): JoinRoomResult {
   if (endedRooms.has(roomId)) {
     return { ok: false, code: "ROOM_ENDED" };
   }
@@ -184,11 +216,51 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string): Jo
   if (!record) {
     return { ok: false, code: "ROOM_NOT_FOUND" };
   }
+  const existingPlayer = record.state.players.find((item) => item.playerToken === playerToken);
+  if (existingPlayer) {
+    const oldSocketId = playerToSocket.get(roomPlayerKey(roomId, existingPlayer.playerId));
+    if (oldSocketId && oldSocketId !== socketId) {
+      socketToPlayer.delete(oldSocketId);
+    }
+    existingPlayer.connected = true;
+    existingPlayer.nickname = nickname;
+    socketToPlayer.set(socketId, { roomId, playerId: existingPlayer.playerId });
+    playerToSocket.set(roomPlayerKey(roomId, existingPlayer.playerId), socketId);
+    return { ok: true, state: record.state, role: "player", playerId: existingPlayer.playerId, reconnected: true };
+  }
+
+  const existingSpectator = record.state.spectators.find((item) => item.playerToken === playerToken);
+  if (existingSpectator) {
+    const oldSocketId = spectatorToSocket.get(roomSpectatorKey(roomId, existingSpectator.spectatorId));
+    if (oldSocketId && oldSocketId !== socketId) {
+      socketToSpectator.delete(oldSocketId);
+    }
+    existingSpectator.connected = true;
+    existingSpectator.nickname = nickname;
+    socketToSpectator.set(socketId, { roomId, spectatorId: existingSpectator.spectatorId });
+    spectatorToSocket.set(roomSpectatorKey(roomId, existingSpectator.spectatorId), socketId);
+    return {
+      ok: true,
+      state: record.state,
+      role: "spectator",
+      playerId: existingSpectator.spectatorId,
+      reconnected: true
+    };
+  }
+
+  if (record.state.status === "in_game") {
+    const spectator = buildSpectator(nickname, playerToken);
+    record.state.spectators.push(spectator);
+    socketToSpectator.set(socketId, { roomId, spectatorId: spectator.spectatorId });
+    spectatorToSocket.set(roomSpectatorKey(roomId, spectator.spectatorId), socketId);
+    return { ok: true, state: record.state, role: "spectator", playerId: spectator.spectatorId };
+  }
+
   if (record.state.players.length >= ROOM_SIZE_LIMIT) {
     return { ok: false, code: "ROOM_FULL" };
   }
 
-  const player = buildPlayer(randomPlayerId(), nickname);
+  const player = buildPlayer(randomPlayerId(), nickname, playerToken);
   record.state.players.push(player);
   record.state.phase = "waiting";
   if (!record.state.currentTurnPlayerId) {
@@ -196,7 +268,7 @@ export function joinRoom(socketId: string, roomId: RoomId, nickname: string): Jo
   }
   socketToPlayer.set(socketId, { roomId, playerId: player.playerId });
   playerToSocket.set(roomPlayerKey(roomId, player.playerId), socketId);
-  return { ok: true, state: record.state };
+  return { ok: true, state: record.state, role: "player", playerId: player.playerId };
 }
 
 export function getPlayerRefBySocket(socketId: string): PlayerRef | null {
@@ -206,7 +278,24 @@ export function getPlayerRefBySocket(socketId: string): PlayerRef | null {
 export function disconnectSocket(socketId: string): RoomState | null {
   const playerRef = socketToPlayer.get(socketId);
   if (!playerRef) {
-    return null;
+    const spectatorRef = socketToSpectator.get(socketId);
+    if (!spectatorRef) {
+      return null;
+    }
+    socketToSpectator.delete(socketId);
+    const reverseKey = roomSpectatorKey(spectatorRef.roomId, spectatorRef.spectatorId);
+    if (spectatorToSocket.get(reverseKey) === socketId) {
+      spectatorToSocket.delete(reverseKey);
+    }
+    const spectatorRoom = rooms.get(spectatorRef.roomId);
+    if (!spectatorRoom) {
+      return null;
+    }
+    const spectator = spectatorRoom.state.spectators.find((item) => item.spectatorId === spectatorRef.spectatorId);
+    if (spectator) {
+      spectator.connected = false;
+    }
+    return spectatorRoom.state;
   }
 
   socketToPlayer.delete(socketId);
@@ -235,13 +324,6 @@ export function disconnectSocket(socketId: string): RoomState | null {
     }
   }
 
-  const connectedCount = record.state.players.filter((item) => item.connected).length;
-  if (connectedCount === 0) {
-    record.state.status = "ended";
-    rooms.delete(playerRef.roomId);
-    endedRooms.add(playerRef.roomId);
-    return null;
-  }
   return record.state;
 }
 

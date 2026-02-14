@@ -1,5 +1,6 @@
 export type RoomId = string;
 export type PlayerId = string;
+export type SelfRole = "player" | "spectator";
 export type RoomPhase = "waiting" | "rolling" | "moving" | "can_buy";
 export type RoomStatus = "waiting" | "in_game" | "ended";
 export const BOARD_SIZE = 40;
@@ -13,6 +14,15 @@ export interface Player {
   joinedAt: number;
   ready: boolean;
   selectedCharacterId: string | null;
+  playerToken: string;
+}
+
+export interface Spectator {
+  spectatorId: string;
+  nickname: string;
+  connected: boolean;
+  joinedAt: number;
+  playerToken: string;
 }
 
 export interface Tile {
@@ -30,6 +40,7 @@ export interface RoomState {
   currentTurnPlayerId: PlayerId | null;
   phase: RoomPhase;
   players: Player[];
+  spectators: Spectator[];
   board: Tile[];
   pendingBuyTileIndex: number | null;
   lastRoll: {
@@ -40,11 +51,13 @@ export interface RoomState {
 
 export interface CreateRoomPayload {
   nickname: string;
+  playerToken: string;
 }
 
 export interface JoinRoomPayload {
   roomId: RoomId;
   nickname: string;
+  playerToken: string;
 }
 
 export interface RollRequestPayload {
@@ -75,6 +88,8 @@ export interface JoinOrCreateRoomAck {
   ok: true;
   roomId: RoomId;
   playerId: PlayerId;
+  role: SelfRole;
+  reconnected?: boolean;
 }
 
 export interface ErrorPayload {
@@ -160,6 +175,6 @@ export interface ServerToClientEvents {
 export interface InterServerEvents {}
 
 export interface SocketData {
-  playerId?: PlayerId;
+  playerId?: string;
   roomId?: RoomId;
 }

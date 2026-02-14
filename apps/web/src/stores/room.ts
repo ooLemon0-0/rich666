@@ -3,6 +3,20 @@ import { defineStore } from "pinia";
 import type { RoomState } from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 
+const PLAYER_TOKEN_KEY = "rich:player-token";
+
+function getOrCreatePlayerToken(): string {
+  const cached = localStorage.getItem(PLAYER_TOKEN_KEY)?.trim();
+  if (cached) {
+    return cached;
+  }
+  const token = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `pt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  localStorage.setItem(PLAYER_TOKEN_KEY, token);
+  return token;
+}
+
 export const useRoomStore = defineStore("room", () => {
   const socketClient = createSocketClient();
   const roomState = ref<RoomState | null>(null);
@@ -36,7 +50,7 @@ export const useRoomStore = defineStore("room", () => {
     error.value = "";
     nickname.value = nextName;
     socketClient.connect();
-    const result = await socketClient.createRoom(nextName);
+    const result = await socketClient.createRoom(nextName, getOrCreatePlayerToken());
     pending.value = false;
     if (!result.ok) {
       error.value = result.message;
@@ -58,7 +72,7 @@ export const useRoomStore = defineStore("room", () => {
     error.value = "";
     nickname.value = nextName;
     socketClient.connect();
-    const result = await socketClient.joinRoom(nextRoomId, nextName);
+    const result = await socketClient.joinRoom(nextRoomId, nextName, getOrCreatePlayerToken());
     pending.value = false;
     if (!result.ok) {
       error.value = result.message;

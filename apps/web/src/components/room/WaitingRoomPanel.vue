@@ -6,6 +6,8 @@ import PlayerList from "./PlayerList.vue";
 const roomStore = useRoomStore();
 const copied = ref(false);
 const copiedText = ref("");
+const inviteInputRef = ref<HTMLInputElement | null>(null);
+const inviteUrl = computed(() => (roomStore.roomId ? buildInviteUrl(roomStore.roomId) : ""));
 
 const readyButtonText = computed(() => {
   return roomStore.selfPlayer?.ready ? "取消准备" : "准备";
@@ -30,7 +32,10 @@ async function copyInviteUrl(): Promise<void> {
       copiedText.value = "";
     }, 1200);
   } catch {
-    roomStore.localError = "复制失败，请手动复制邀请链接";
+    roomStore.localError = "复制失败，请手动复制链接";
+    copiedText.value = "复制失败，请手动复制链接";
+    inviteInputRef.value?.focus();
+    inviteInputRef.value?.select();
   }
 }
 
@@ -46,12 +51,14 @@ function handleModifyRole(): void {
         <p class="label">房间铭牌</p>
         <h2>{{ roomStore.roomId }}</h2>
         <p class="count">玩家：{{ roomStore.connectedPlayersCount }}/{{ roomStore.maxPlayers }}</p>
+        <p class="count spectator">观战：{{ roomStore.roomState?.spectators?.filter((s) => s.connected).length ?? 0 }}</p>
       </div>
       <button class="copy-btn" type="button" @click="copyInviteUrl">
         {{ copied ? "已复制" : "复制邀请链接" }}
       </button>
     </header>
     <p v-if="copiedText" class="copy-tip">{{ copiedText }}</p>
+    <input ref="inviteInputRef" class="invite-fallback" :value="inviteUrl" readonly />
 
     <PlayerList
       :players="roomStore.players"
@@ -62,6 +69,7 @@ function handleModifyRole(): void {
 
     <footer class="actions">
       <button
+        v-if="roomStore.selfRole === 'player'"
         class="action ready"
         type="button"
         :disabled="!roomStore.canReady || roomStore.actionPending"
@@ -81,6 +89,7 @@ function handleModifyRole(): void {
     </footer>
 
     <div class="tips">
+      <p v-if="roomStore.selfRole === 'spectator'" class="spectator-tip">当前为观战模式，无法掷骰或购买。</p>
       <p>连接状态：{{ roomStore.connectionHint }}</p>
       <p v-if="roomStore.localError" class="error">{{ roomStore.localError }}</p>
     </div>
@@ -123,12 +132,26 @@ h2 {
   font-weight: 700;
   font-size: 13px;
 }
+.count.spectator {
+  color: #0369a1;
+}
 
 .copy-tip {
   margin: -4px 0 10px;
   color: #065f46;
   font-size: 13px;
   font-weight: 700;
+}
+
+.invite-fallback {
+  width: 100%;
+  margin: 0 0 10px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  padding: 8px 10px;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
 }
 
 .copy-btn {
@@ -182,6 +205,11 @@ h2 {
 .error {
   margin-top: 4px;
   color: #dc2626;
+  font-weight: 700;
+}
+.spectator-tip {
+  margin-bottom: 4px !important;
+  color: #0369a1;
   font-weight: 700;
 }
 </style>
