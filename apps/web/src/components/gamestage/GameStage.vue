@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import BoardRoute from "./BoardRoute.vue";
 import DiceButton from "./DiceButton.vue";
 import DiceOverlay from "./DiceOverlay.vue";
@@ -19,8 +19,24 @@ interface RoutePoint {
 }
 
 const roomStore = useRoomStore();
+const stageRef = ref<HTMLElement | null>(null);
 const routePoints = ref<RoutePoint[]>([]);
 const selectedTileIndex = ref<number | null>(null);
+const stageRect = ref({ width: 0, height: 0 });
+const layoutStatus = ref({
+  rendered: false,
+  tileCount: 0,
+  scale: 1,
+  hasNaN: false,
+  lastError: ""
+});
+const runtimeError = ref("");
+const showDebugOverlay = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
+const stageReady = computed(() => stageRect.value.width >= 300 && stageRect.value.height >= 300);
+const tilesRenderable = computed(() => stageReady.value && layoutStatus.value.rendered && routePoints.value.length === tiles.length);
+let resizeObserver: ResizeObserver | null = null;
+let resizeRaf = 0;
+let errorHandler: ((event: ErrorEvent) => void) | null = null;
 
 const tiles = BOARD_TILES;
 
@@ -30,6 +46,16 @@ function onPointsChange(points: RoutePoint[]): void {
 
 function onTileScaleChange(_scale: number): void {
   // kept for compatibility with BoardRoute emit signature
+}
+
+function onLayoutStatusChange(payload: {
+  rendered: boolean;
+  tileCount: number;
+  scale: number;
+  hasNaN: boolean;
+  lastError: string;
+}): void {
+  layoutStatus.value = payload;
 }
 
 const occupantMap = computed(() => {
@@ -110,19 +136,82 @@ function handleEscClose(event: KeyboardEvent): void {
 
 onMounted(() => {
   window.addEventListener("keydown", handleEscClose);
+  if (stageRef.value) {
+    resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      if (resizeRaf) {
+        window.cancelAnimationFrame(resizeRaf);
+      }
+      resizeRaf = window.requestAnimationFrame(() => {
+        stageRect.value = {
+          width: Math.floor(entry.contentRect.width),
+          height: Math.floor(entry.contentRect.height)
+        };
+      });
+    });
+    resizeObserver.observe(stageRef.value);
+  }
+  errorHandler = (event: ErrorEvent) => {
+    runtimeError.value = event.message;
+  };
+  window.addEventListener("error", errorHandler);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleEscClose);
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+  if (resizeRaf) {
+    window.cancelAnimationFrame(resizeRaf);
+    resizeRaf = 0;
+  }
+  if (errorHandler) {
+    window.removeEventListener("error", errorHandler);
+    errorHandler = null;
+  }
 });
+
+watch(
+  () => stageRect.value,
+  (next) => {
+    if (!showDebugOverlay) {
+      return;
+    }
+    console.log("[STAGE]", next);
+  },
+  { deep: true }
+);
+
+watch(
+  () => layoutStatus.value,
+  (next) => {
+    if (!showDebugOverlay) {
+      return;
+    }
+    console.log("[LAYOUT]", next);
+  },
+  { deep: true }
+);
 </script>
 
 <template>
-  <section class="game-stage">
-    <BoardRoute :tile-count="tiles.length" @points-change="onPointsChange" @tile-scale-change="onTileScaleChange" />
+  <section ref="stageRef" class="game-stage">
+    <BoardRoute
+      :tile-count="tiles.length"
+      :stage-width="stageRect.width"
+      :stage-height="stageRect.height"
+      @points-change="onPointsChange"
+      @tile-scale-change="onTileScaleChange"
+      @layout-status-change="onLayoutStatusChange"
+    />
 
     <TileNode
-      v-for="(tile, index) in tiles"
+      v-for="(tile, index) in tilesRenderable ? tiles : []"
       :key="tile.id"
       :tile-index="index"
       :tile="tile"
@@ -138,7 +227,9 @@ onBeforeUnmount(() => {
       @select="handleSelectTile"
     />
 
-    <DiceButton :disabled="!roomStore.canRoll" @roll="handleRollClick" />
+    <div class="dice-anchor">
+      <DiceButton :disabled="!roomStore.canRoll" @roll="handleRollClick" />
+    </div>
     <DiceOverlay :event="roomStore.diceRolledEvent" />
     <TileDetailModal
       :open="selectedTileIndex !== null"
@@ -149,6 +240,16 @@ onBeforeUnmount(() => {
       @close="closeTileModal"
       @buy="handleBuySelectedTile"
     />
+    <div v-if="!tilesRenderable" class="board-loading">Loading board...</div>
+    <div v-if="showDebugOverlay" class="debug-overlay">
+      <p>stageRect: {{ stageRect.width }} x {{ stageRect.height }}</p>
+      <p>boardScale: {{ layoutStatus.scale.toFixed(3) }}</p>
+      <p>tileCount: {{ layoutStatus.tileCount }}</p>
+      <p>rendered: {{ layoutStatus.rendered }}</p>
+      <p>hasNaN: {{ layoutStatus.hasNaN }}</p>
+      <p v-if="layoutStatus.lastError">layoutErr: {{ layoutStatus.lastError }}</p>
+      <p v-if="runtimeError">runtimeErr: {{ runtimeError }}</p>
+    </div>
   </section>
 </template>
 
@@ -184,6 +285,41 @@ onBeforeUnmount(() => {
 .game-stage > * {
   position: relative;
   z-index: 1;
+}
+.dice-anchor {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+  pointer-events: auto;
+}
+.board-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: #0f172a;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 12;
+}
+.debug-overlay {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 40;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #111827;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+.debug-overlay p {
+  margin: 0;
+  line-height: 1.3;
 }
 @media (max-height: 840px) {
   .game-stage {

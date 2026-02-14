@@ -16,9 +16,7 @@ const emit = defineEmits<{
 
 <style scoped>
 .dice-btn {
-  position: absolute;
-  right: 16px;
-  bottom: 14px;
+  position: relative;
   width: 66px;
   height: 66px;
   border: 0;
@@ -29,7 +27,7 @@ const emit = defineEmits<{
     0 8px 0 #c2410c,
     0 14px 24px rgba(15, 23, 42, 0.3);
   transition: transform 0.16s ease;
-  z-index: 8;
+  z-index: 1;
 }
 .dice-btn:hover {
   transform: translateY(-3px) scale(1.04);
