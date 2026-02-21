@@ -3,7 +3,9 @@ import { BOARD_RICH666_V1 } from "@rich/game-config";
 export type ZhouKey = "冀" | "兖" | "青" | "徐" | "豫" | "扬" | "荆" | "梁" | "雍";
 
 interface BaseTile {
+  index: number;
   id: string;
+  name: string;
   nameZh: string;
   mapX: number;
   mapY: number;
@@ -69,8 +71,10 @@ export const BOARD_CORNER_INDEXES = [
 export const BOARD_TILES: BoardTileConfig[] = BOARD_CONFIG.tiles.map((tile) => {
   if (tile.type === "special") {
     return {
+      index: tile.index,
       id: `${tile.specialKey ?? "special"}-${tile.index}`,
       type: "special",
+      name: tile.name,
       nameZh: tile.name,
       mapX: tile.mapX,
       mapY: tile.mapY,
@@ -80,8 +84,10 @@ export const BOARD_TILES: BoardTileConfig[] = BOARD_CONFIG.tiles.map((tile) => {
   const zhouKey = (tile.zhouAbbr ?? "") as ZhouKey;
   const zhouName = tile.zhou ?? ZHOU_ABBR_TO_NAME[zhouKey] ?? "未知州";
   return {
+    index: tile.index,
     id: `${zhouName}-${tile.name}-${tile.index}`,
     type: "property",
+    name: tile.name,
     nameZh: tile.name,
     mapX: tile.mapX,
     mapY: tile.mapY,

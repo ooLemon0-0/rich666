@@ -3,8 +3,10 @@ import type { BoardTileConfig, PropertyTile, SpecialTile } from "../board/boardC
 function makeSpecial(index: number, nameZh: string, icon: string): SpecialTile {
   const ring = fallbackRingPoint(index, 40);
   return {
+    index,
     id: `fallback-special-${index}`,
     type: "special",
+    name: nameZh,
     nameZh,
     mapX: ring.x,
     mapY: ring.y,
@@ -17,8 +19,10 @@ function makeProperty(index: number): PropertyTile {
   const baseRent = Math.max(40, Math.floor(price * 0.22));
   const ring = fallbackRingPoint(index, 40);
   return {
+    index,
     id: `fallback-property-${index}`,
     type: "property",
+    name: `地块${index}`,
     nameZh: `地块${index}`,
     mapX: ring.x,
     mapY: ring.y,

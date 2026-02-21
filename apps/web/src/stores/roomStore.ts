@@ -48,8 +48,10 @@ function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTil
     const localTile = BOARD_TILES[index];
     if (tile.kind === "special") {
       return {
+        index: tile.index,
         id: tile.tileId,
         type: "special",
+        name: tile.name,
         nameZh: tile.name,
         mapX: localTile?.mapX ?? 50,
         mapY: localTile?.mapY ?? 50,
@@ -61,8 +63,10 @@ function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTil
       console.error("[TILE_BAD_ZHOU]", { index, tileId: tile.tileId, name: tile.name });
     }
     return {
+      index: tile.index,
       id: tile.tileId,
       type: "property",
+      name: tile.name,
       nameZh: tile.name,
       mapX: localProperty?.mapX ?? localTile?.mapX ?? 50,
       mapY: localProperty?.mapY ?? localTile?.mapY ?? 50,
