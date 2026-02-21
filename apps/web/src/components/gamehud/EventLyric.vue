@@ -23,7 +23,7 @@ defineExpose({
 
 <template>
   <section class="event-lyric">
-    <h3>事件歌词流</h3>
+    <h3>事件流</h3>
     <transition-group name="lyric" tag="ul" class="list">
       <li v-for="(item, index) in events" :key="item.id" class="line" :class="`lv-${index}`">
         <span class="text">{{ item.text }}</span>

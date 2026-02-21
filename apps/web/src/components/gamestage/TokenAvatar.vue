@@ -7,7 +7,7 @@ defineProps<{
 </script>
 
 <template>
-  <span class="token-avatar" :style="{ '--token-color': color, width: `${size ?? 22}px`, height: `${size ?? 22}px` }">
+  <span class="token-avatar" :style="{ '--token-color': color, width: size ? `${size}px` : 'var(--token-size, 22px)', height: size ? `${size}px` : 'var(--token-size, 22px)' }">
     <img :src="avatarUrl" alt="token avatar" />
   </span>
 </template>

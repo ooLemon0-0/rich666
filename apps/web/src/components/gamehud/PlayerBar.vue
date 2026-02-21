@@ -2,8 +2,23 @@
 import defaultAvatar from "../../assets/default-avatar.svg";
 import { getCharacterVisual } from "../../game/characters/characters";
 import { useRoomStore } from "../../stores/roomStore";
+import type { GodId } from "@rich/shared";
 
 const roomStore = useRoomStore();
+const GOD_SHORT_MAP: Record<GodId, string> = {
+  land_god: "土",
+  fortune_god: "财",
+  poor_god: "穷",
+  holy_mary: "圣",
+  liu_dehua: "狂"
+};
+
+function godBadgeText(godId: GodId | null | undefined): string {
+  if (!godId) {
+    return "";
+  }
+  return GOD_SHORT_MAP[godId] ?? "神";
+}
 </script>
 
 <template>
@@ -25,6 +40,7 @@ const roomStore = useRoomStore();
         <p class="cash">🪙 {{ player.cash }}</p>
       </div>
       <span v-if="player.playerId === roomStore.roomState?.hostPlayerId" class="host-tag">👑</span>
+      <span v-if="player.effects.godId" class="god-tag">{{ godBadgeText(player.effects.godId) }}</span>
       <span class="ready-tag" :class="{ on: player.ready }">{{ player.ready ? "已准备" : "未准备" }}</span>
       <span v-if="player.playerId === roomStore.selfPlayerId" class="self-tag">你</span>
     </article>
@@ -94,9 +110,24 @@ const roomStore = useRoomStore();
 }
 .host-tag {
   position: absolute;
-  left: 6px;
+  left: 28px;
   top: 6px;
   font-size: 12px;
+}
+.god-tag {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
 }
 .ready-tag {
   position: absolute;

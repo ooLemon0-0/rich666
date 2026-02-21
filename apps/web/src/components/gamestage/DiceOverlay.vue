@@ -13,9 +13,24 @@ const props = defineProps<{
 }>();
 
 const visible = ref(false);
-const currentValue = ref(1);
+const diceA = ref(1);
+const diceB = ref(1);
 
-const diceFace = computed(() => ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][Math.max(0, Math.min(5, currentValue.value - 1))]);
+const diceFaceA = computed(() => ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][Math.max(0, Math.min(5, diceA.value - 1))]);
+const diceFaceB = computed(() => ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"][Math.max(0, Math.min(5, diceB.value - 1))]);
+
+function splitDice(total: number): [number, number] {
+  const n = Math.floor(total);
+  if (n >= 2 && n <= 12) {
+    const minA = Math.max(1, n - 6);
+    const maxA = Math.min(6, n - 1);
+    const a = Math.floor(Math.random() * (maxA - minA + 1)) + minA;
+    return [a, n - a];
+  }
+  // Any-dice keeps legacy 1-6 value; keep two-dice animation stable.
+  const c = Math.max(1, Math.min(6, n || 1));
+  return [c, 1];
+}
 
 watch(
   () => props.event?.seq,
@@ -23,7 +38,9 @@ watch(
     if (!seq || !props.event) {
       return;
     }
-    currentValue.value = props.event.payload.value;
+    const [a, b] = splitDice(props.event.payload.value);
+    diceA.value = a;
+    diceB.value = b;
     visible.value = true;
     playSfx("dice_roll");
     window.setTimeout(() => {
@@ -39,8 +56,13 @@ watch(
 <template>
   <Transition name="fade">
     <div v-if="visible" class="overlay">
-      <div class="dice-box">
-        <span class="face">{{ diceFace }}</span>
+      <div class="dice-wrap">
+        <div class="dice-box">
+          <span class="face">{{ diceFaceA }}</span>
+        </div>
+        <div class="dice-box">
+          <span class="face">{{ diceFaceB }}</span>
+        </div>
       </div>
     </div>
   </Transition>
@@ -51,13 +73,19 @@ watch(
   position: absolute;
   inset: 0;
   z-index: 10;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 12px;
   pointer-events: none;
 }
+.dice-wrap {
+  display: flex;
+  gap: 10px;
+}
 .dice-box {
-  width: 110px;
-  height: 110px;
+  width: 78px;
+  height: 78px;
   border-radius: 22px;
   border: 3px solid rgba(251, 191, 36, 0.9);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(254, 249, 195, 0.95));
@@ -69,7 +97,7 @@ watch(
   animation: rollBounce 0.95s ease;
 }
 .face {
-  font-size: 54px;
+  font-size: 42px;
 }
 .fade-enter-active,
 .fade-leave-active {

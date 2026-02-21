@@ -3,11 +3,15 @@ import cors from "@fastify/cors";
 import { Server } from "socket.io";
 import type { AddressInfo } from "node:net";
 import {
-  BOARD_SIZE,
+  type ActionDecisionPayload,
   type BuyRequestPayload,
   type ClientToServerEvents,
   type CreateRoomPayload,
+  type CreateTradeOfferPayload,
   type ErrorPayload,
+  type GameActionRequiredPayload,
+  type GameEventPayload,
+  type GameItemAnnouncementPayload,
   type GameLandingResolvedPayload,
   type GameStaticConfigPayload,
   type InterServerEvents,
@@ -15,30 +19,46 @@ import {
   type JoinOrCreateRoomResult,
   type GameSystemEventPayload,
   type LeaveRoomPayload,
+  type TradeOfferActionResult,
+  type TradeResultEventPayload,
+  type RespondTradeOfferPayload,
+  type TradeOfferEventPayload,
   type RoomActionResult,
+  type UseItemPayload,
+  type UseItemResult,
   type ReconnectRequestPayload,
   type ReconnectRequestResult,
   type RollRequestPayload,
   type RollRequestResult,
   type SocketErrorPayload,
   type SkipBuyPayload,
+  type SetInitialCashPayload,
   type ServerToClientEvents,
   type SocketData
 } from "@rich/shared";
 import {
+  actionDecision,
   buyRequest,
+  consumePendingTimeoutQueue,
   createRoom,
+  createTradeOffer,
   disconnectSocket,
   gcStaleRooms,
+  getRoomState,
   getPlayerRefBySocket,
+  getSocketIdByRoomPlayer,
   joinRoom,
   leaveRoom,
+  getTradeOfferForRoom,
   reconnectPlayer,
+  respondTradeOffer,
   rollRequest,
+  setInitialCash,
   selectCharacter,
   skipBuy,
   startGame,
-  toggleReady
+  toggleReady,
+  useItemRequest
 } from "./game/roomManager.js";
 import { TILES_CONFIG } from "./game/tilesConfig.js";
 
@@ -199,7 +219,66 @@ function emitSystemEvents(roomId: string, events: string[] | undefined): void {
   events.forEach((text) => {
     const payload: GameSystemEventPayload = { roomId, text };
     io.to(roomId).emit("game:systemEvent", payload);
+    const eventPayload: GameEventPayload = { roomId, text };
+    io.to(roomId).emit("game:event", eventPayload);
   });
+}
+
+function emitItemAnnouncements(roomId: string, announcements: GameItemAnnouncementPayload[] | undefined): void {
+  if (!announcements || announcements.length === 0) {
+    return;
+  }
+  announcements.forEach((announcement) => {
+    io.to(roomId).emit("game:itemAnnouncement", announcement);
+  });
+}
+
+function emitPendingActionToPlayer(roomId: string, playerId: string): void {
+  const state = getRoomState(roomId);
+  if (!state || !state.pendingAction) {
+    return;
+  }
+  const player = state.players.find((item) => item.playerId === playerId);
+  if (!player || player.playerToken !== state.pendingAction.targetPlayerToken) {
+    return;
+  }
+  const targetSocketId = getSocketIdByRoomPlayer(roomId, playerId);
+  if (!targetSocketId) {
+    return;
+  }
+  const tile = state.board[state.pendingAction.tileIndex];
+  const payload: GameActionRequiredPayload = {
+    roomId,
+    targetPlayerId: playerId,
+    actionId: state.pendingAction.id,
+    actionType: state.pendingAction.type,
+    tileIndex: state.pendingAction.tileIndex,
+    expiresAt: state.pendingAction.expiresAt,
+    turnSeq: state.turnSeq,
+    payload: {
+      roomId,
+      playerId,
+      heroId: player.selectedCharacterId,
+      tileId: state.pendingAction.tileIndex,
+      tileType: state.pendingAction.type === "ITEM_SHOP" ? "special" : "property",
+      action:
+        state.pendingAction.type === "BUY"
+          ? "BUY_OFFER"
+          : state.pendingAction.type === "UPGRADE"
+            ? "UPGRADE_OFFER"
+            : "ITEM_SHOP_OFFER",
+      amount:
+        state.pendingAction.type === "BUY"
+          ? (tile?.price ?? 0)
+          : state.pendingAction.type === "UPGRADE"
+            ? (tile ? Math.max(120, Math.floor(tile.price * 0.6)) : 0)
+            : (state.pendingAction.shopOfferPrice ?? 0),
+      itemId: state.pendingAction.shopOfferItemId,
+      detail: state.pendingAction.shopOfferDetail,
+      ownerHeroId: tile?.ownerCharacterId ?? null
+    }
+  };
+  io.to(targetSocketId).emit("game:action_required", payload);
 }
 
 function ackAndEmitError<TErrorResult>(
@@ -257,6 +336,7 @@ io.on("connection", (socket) => {
     ack(result);
     emitStaticConfig(state.roomId);
     emitRoomState(state.roomId, state);
+    emitPendingActionToPlayer(state.roomId, playerRef.playerId);
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room created");
   });
 
@@ -299,6 +379,9 @@ io.on("connection", (socket) => {
     ack(result);
     emitStaticConfig(state.roomId);
     emitRoomState(state.roomId, state);
+    if (joinResult.playerId) {
+      emitPendingActionToPlayer(state.roomId, joinResult.playerId);
+    }
     app.log.info({ socketId: socket.id, roomId: state.roomId }, "room joined");
   });
 
@@ -342,6 +425,7 @@ io.on("connection", (socket) => {
     ack(reconnectResult.result);
     emitStaticConfig(roomId);
     emitRoomState(roomId, reconnectResult.state);
+    emitPendingActionToPlayer(roomId, playerId);
     app.log.info({ socketId: socket.id, roomId, playerId }, "player reconnected");
   });
 
@@ -379,10 +463,36 @@ io.on("connection", (socket) => {
     });
     if (roll.landing) {
       const landingPayload: GameLandingResolvedPayload = roll.landing;
-      io.to(roomId).emit("game:landingResolved", landingPayload);
+      const needsAction =
+        landingPayload.action === "BUY_OFFER" ||
+        landingPayload.action === "UPGRADE_OFFER" ||
+        landingPayload.action === "ITEM_SHOP_OFFER";
+      if (needsAction) {
+        const pending = roll.state.pendingAction;
+        if (!pending) {
+          emitRoomState(roomId, roll.state);
+          emitSystemEvents(roomId, roll.events);
+          return;
+        }
+        const actionPayload: GameActionRequiredPayload = {
+          roomId,
+          targetPlayerId: roll.result.playerId,
+          actionId: pending.id,
+          actionType: pending.type,
+          tileIndex: pending.tileIndex,
+          expiresAt: pending.expiresAt,
+          turnSeq: roll.state.turnSeq,
+          payload: landingPayload
+        };
+        const targetSocketId = getSocketIdByRoomPlayer(roomId, roll.result.playerId);
+        if (targetSocketId) {
+          io.to(targetSocketId).emit("game:action_required", actionPayload);
+        }
+      }
     }
     emitRoomState(roomId, roll.state);
     emitSystemEvents(roomId, roll.events);
+    emitItemAnnouncements(roomId, roll.announcements);
     app.log.info(
       {
         socketId: socket.id,
@@ -390,7 +500,7 @@ io.on("connection", (socket) => {
         dice: roll.result.dice,
         position: roll.result.position,
         nextTurn: roll.state.currentTurnPlayerId,
-        boardSize: BOARD_SIZE
+        boardSize: TILES_CONFIG.length
       },
       "roll applied"
     );
@@ -460,6 +570,43 @@ io.on("connection", (socket) => {
     emitRoomState(roomId, result.state);
     emitSystemEvents(roomId, result.events);
     app.log.info({ socketId: socket.id, roomId, action: "skip_buy" }, "trade applied");
+  });
+
+  socket.on("game_action_decision", (payload: ActionDecisionPayload, ack) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId) {
+      ackAndEmitError(socket.id, ack, invalidPayload("roomId 不能为空"));
+      return;
+    }
+    const result = actionDecision(
+      socket.id,
+      roomId,
+      payload.actionId,
+      payload.playerToken,
+      payload.turnSeq,
+      payload.decision
+    );
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "NOT_YOUR_TURN") {
+        error = notYourTurn();
+      } else if (result.code === "NOT_BUY_PHASE") {
+        error = notBuyPhase();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction();
+      } else if (result.code === "INSUFFICIENT_CASH") {
+        error = insufficientCash();
+      }
+      ackAndEmitError(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
+    emitSystemEvents(roomId, result.events);
   });
 
   socket.on("room_select_character", (payload, ack: (result: RoomActionResult) => void) => {
@@ -554,6 +701,31 @@ io.on("connection", (socket) => {
     emitRoomState(roomId, result.state);
   });
 
+  socket.on("room_set_initial_cash", (payload: SetInitialCashPayload, ack: (result: RoomActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId) {
+      ackAndEmitError<RoomActionResult>(socket.id, ack, invalidPayload("roomId 不能为空"));
+      return;
+    }
+    const result = setInitialCash(socket.id, roomId, payload.amount);
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("仅房主可在等待阶段设置初始金钱（15000~100000）");
+      }
+      ackAndEmitError<RoomActionResult>(socket.id, ack, error);
+      return;
+    }
+    ack(result.result);
+    emitRoomState(roomId, result.state);
+  });
+
   socket.on("room_leave", (payload: LeaveRoomPayload, ack: (result: RoomActionResult) => void) => {
     const roomId = payload.roomId.trim().toUpperCase();
     const playerToken = payload.playerToken.trim();
@@ -578,6 +750,187 @@ io.on("connection", (socket) => {
     }
     ack(result.result);
     emitRoomState(roomId, result.state);
+  });
+
+  socket.on("room_create_trade_offer", (payload: CreateTradeOfferPayload, ack: (result: TradeOfferActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId || !payload.targetPlayerId) {
+      ackAndEmitError<TradeOfferActionResult>(socket.id, ack, invalidPayload("roomId 和 targetPlayerId 不能为空"));
+      return;
+    }
+    const result = createTradeOffer(
+      socket.id,
+      roomId,
+      payload.targetPlayerId,
+      payload.givePropertyIndexes ?? [],
+      payload.takePropertyIndexes ?? [],
+      payload.giveCash ?? 0,
+      payload.takeCash ?? 0,
+      payload.giveItems ?? [],
+      payload.takeItems ?? []
+    );
+    if (!result.ok || !result.state || !result.offer) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "INSUFFICIENT_CASH") {
+        error = insufficientCash();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("交易内容无效或地产归属已变化");
+      }
+      ackAndEmitError<TradeOfferActionResult>(socket.id, ack, error);
+      return;
+    }
+    const offerPayload = getTradeOfferForRoom(roomId);
+    if (offerPayload) {
+      const targetSocketId = getSocketIdByRoomPlayer(roomId, offerPayload.toPlayerId);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("room:trade_offer", offerPayload);
+      }
+    }
+    ack({
+      ok: true,
+      roomId,
+      tradeId: result.offer.tradeId,
+      status: "sent"
+    });
+  });
+
+  socket.on("room_respond_trade_offer", (payload: RespondTradeOfferPayload, ack: (result: TradeOfferActionResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId || !payload.tradeId) {
+      ackAndEmitError<TradeOfferActionResult>(socket.id, ack, invalidPayload("roomId 和 tradeId 不能为空"));
+      return;
+    }
+    const result = respondTradeOffer(socket.id, roomId, payload.tradeId, Boolean(payload.accept));
+    if (!result.ok || !result.state || !result.offer) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "INSUFFICIENT_CASH") {
+        error = insufficientCash();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("该交易已失效");
+      }
+      ackAndEmitError<TradeOfferActionResult>(socket.id, ack, error);
+      return;
+    }
+    const tradeResultPayload: TradeResultEventPayload = {
+      roomId,
+      tradeId: result.offer.tradeId,
+      fromPlayerId: result.offer.fromPlayerId,
+      toPlayerId: result.offer.toPlayerId,
+      accepted: Boolean(payload.accept),
+      text: result.events?.[0] ?? "交易处理完成"
+    };
+    io.to(roomId).emit("room:trade_result", tradeResultPayload);
+    emitSystemEvents(roomId, result.events);
+    emitRoomState(roomId, result.state);
+    ack({
+      ok: true,
+      roomId,
+      tradeId: result.offer.tradeId,
+      status: payload.accept ? "accepted" : "rejected"
+    });
+  });
+
+  socket.on("room_use_item", (payload: UseItemPayload, ack: (result: UseItemResult) => void) => {
+    const roomId = payload.roomId.trim().toUpperCase();
+    if (!roomId || !payload.itemId) {
+      ackAndEmitError<UseItemResult>(socket.id, ack, invalidPayload("roomId 和 itemId 不能为空"));
+      return;
+    }
+    const result = useItemRequest(
+      socket.id,
+      roomId,
+      payload.itemId,
+      payload.targetPlayerId,
+      payload.targetTileIndex,
+      payload.desiredDice
+    );
+    if (!result.ok || !result.state || !result.result) {
+      let error: ErrorPayload = roomNotFound();
+      if (result.code === "ROOM_ENDED") {
+        error = roomEnded();
+      } else if (result.code === "ROOM_MISMATCH") {
+        error = roomMismatch();
+      } else if (result.code === "PLAYER_NOT_FOUND") {
+        error = playerNotFound();
+      } else if (result.code === "NOT_YOUR_TURN") {
+        error = notYourTurn();
+      } else if (result.code === "INSUFFICIENT_CASH") {
+        error = insufficientCash();
+      } else if (result.code === "GAME_NOT_READY") {
+        error = gameNotReady();
+      } else if (result.code === "ERR_INVALID_ACTION") {
+        error = invalidAction("当前道具不可使用或目标无效");
+      }
+      ackAndEmitError<UseItemResult>(socket.id, ack, error);
+      return;
+    }
+    ack({
+      ok: true,
+      roomId,
+      playerId: result.result.playerId,
+      itemId: result.result.itemId,
+      consumed: result.result.consumed
+    });
+    if (result.roll) {
+      io.to(roomId).emit("game:diceRolled", {
+        roomId,
+        playerId: result.roll.playerId,
+        value: result.roll.dice
+      });
+      const pending = result.state.pendingAction;
+      if (pending) {
+        const actionPayload: GameActionRequiredPayload = {
+          roomId,
+          targetPlayerId: result.roll.playerId,
+          actionId: pending.id,
+          actionType: pending.type,
+          tileIndex: pending.tileIndex,
+          expiresAt: pending.expiresAt,
+          turnSeq: result.state.turnSeq,
+          payload: {
+            roomId,
+            playerId: result.roll.playerId,
+            heroId: result.state.players.find((item) => item.playerId === result.roll?.playerId)?.selectedCharacterId ?? null,
+            tileId: pending.tileIndex,
+            tileType: pending.type === "ITEM_SHOP" ? "special" : "property",
+            action:
+              pending.type === "BUY"
+                ? "BUY_OFFER"
+                : pending.type === "UPGRADE"
+                  ? "UPGRADE_OFFER"
+                  : "ITEM_SHOP_OFFER",
+            amount:
+              pending.type === "BUY"
+                ? (result.state.board[pending.tileIndex]?.price ?? 0)
+                : pending.type === "UPGRADE"
+                  ? Math.max(120, Math.floor((result.state.board[pending.tileIndex]?.price ?? 0) * 0.6))
+                  : (pending.shopOfferPrice ?? 0),
+            ownerHeroId: result.state.board[pending.tileIndex]?.ownerCharacterId ?? null,
+            itemId: pending.shopOfferItemId,
+            detail: pending.shopOfferDetail
+          }
+        };
+        const targetSocketId = getSocketIdByRoomPlayer(roomId, result.roll.playerId);
+        if (targetSocketId) {
+          io.to(targetSocketId).emit("game:action_required", actionPayload);
+        }
+      }
+    }
+    emitRoomState(roomId, result.state);
+    emitSystemEvents(roomId, result.events);
+    emitItemAnnouncements(roomId, result.announcements);
   });
 
   socket.on("disconnect", (reason) => {
@@ -611,6 +964,19 @@ io.engine.on("connection_error", (error) => {
 setInterval(() => {
   gcStaleRooms();
 }, 15_000);
+
+setInterval(() => {
+  const updates = consumePendingTimeoutQueue();
+  updates.forEach((update) => {
+    const state = getRoomState(update.roomId);
+    if (!state) {
+      return;
+    }
+    emitRoomState(update.roomId, state);
+    emitSystemEvents(update.roomId, update.events);
+    emitItemAnnouncements(update.roomId, update.announcements);
+  });
+}, 250);
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";

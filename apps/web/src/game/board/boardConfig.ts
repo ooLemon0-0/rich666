@@ -5,6 +5,8 @@ export type ZhouKey = "冀" | "兖" | "青" | "徐" | "豫" | "扬" | "荆" | "�
 interface BaseTile {
   id: string;
   nameZh: string;
+  mapX: number;
+  mapY: number;
 }
 
 export interface PropertyTile extends BaseTile {
@@ -16,6 +18,7 @@ export interface PropertyTile extends BaseTile {
   price: number;
   toll: number;
   buildCost: number;
+  rentByLevel: number[];
   level: number;
 }
 
@@ -44,12 +47,17 @@ const SPECIAL_ICON_BY_KEY: Record<string, string> = {
   fate: "📜",
   tax: "💰",
   post: "🐎",
+  item_shop: "🛒",
   chest: "🎁",
   jail: "⛓",
   go_to_jail: "🚨"
 };
 
 export const BOARD_CONFIG = BOARD_RICH666_V1;
+export const BOARD_GRID_SIZE = BOARD_CONFIG.gridSize;
+export const BOARD_GRID_UNIT_PX = BOARD_CONFIG.gridUnitPx;
+export const BOARD_FIXED_TILE_SIZE_PX = BOARD_CONFIG.fixedTileSizePx;
+export const BOARD_WORLD_SIZE_PX = BOARD_GRID_SIZE * BOARD_GRID_UNIT_PX;
 export const BOARD_CORNERS = BOARD_CONFIG.corners;
 export const BOARD_CORNER_INDEXES = [
   BOARD_CORNERS.topLeft,
@@ -64,6 +72,8 @@ export const BOARD_TILES: BoardTileConfig[] = BOARD_CONFIG.tiles.map((tile) => {
       id: `${tile.specialKey ?? "special"}-${tile.index}`,
       type: "special",
       nameZh: tile.name,
+      mapX: tile.mapX,
+      mapY: tile.mapY,
       icon: SPECIAL_ICON_BY_KEY[tile.specialKey ?? ""] ?? "✨"
     };
   }
@@ -73,6 +83,8 @@ export const BOARD_TILES: BoardTileConfig[] = BOARD_CONFIG.tiles.map((tile) => {
     id: `${zhouName}-${tile.name}-${tile.index}`,
     type: "property",
     nameZh: tile.name,
+    mapX: tile.mapX,
+    mapY: tile.mapY,
     zhouKey,
     zhouName,
     tagIcon: zhouKey,
@@ -80,6 +92,7 @@ export const BOARD_TILES: BoardTileConfig[] = BOARD_CONFIG.tiles.map((tile) => {
     price: tile.buyPrice ?? 0,
     toll: tile.rent ?? 0,
     buildCost: tile.upgradeCost ?? Math.max(120, Math.floor((tile.buyPrice ?? 0) * 0.72)),
+    rentByLevel: tile.rentByLevel ?? [tile.rent ?? 0, Math.round((tile.rent ?? 0) * 1.6), Math.round((tile.rent ?? 0) * 2.3), Math.round((tile.rent ?? 0) * 3.2)],
     level: 0
   };
 });

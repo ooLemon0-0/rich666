@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoomStore } from "../../stores/roomStore";
 import PlayerList from "./PlayerList.vue";
 import ManualCopyModal from "./ManualCopyModal.vue";
@@ -10,6 +10,7 @@ const copied = ref(false);
 const copiedText = ref("");
 const showManualCopyModal = ref(false);
 const inviteUrl = computed(() => (roomStore.roomId ? buildInviteUrl(roomStore.roomId) : ""));
+const initialCashDraft = ref(15_000);
 
 const readyButtonText = computed(() => {
   return roomStore.selfPlayer?.ready ? "取消准备" : "准备";
@@ -45,6 +46,39 @@ async function copyInviteUrl(): Promise<void> {
 function handleModifyRole(): void {
   roomStore.openCharacterModal();
 }
+
+async function handleInitialCashChange(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement | null;
+  if (!target) {
+    return;
+  }
+  const value = Number(target.value);
+  if (!Number.isFinite(value)) {
+    return;
+  }
+  initialCashDraft.value = value;
+  await roomStore.setInitialCash(value);
+}
+
+function handleInitialCashInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null;
+  if (!target) {
+    return;
+  }
+  const value = Number(target.value);
+  if (!Number.isFinite(value)) {
+    return;
+  }
+  initialCashDraft.value = value;
+}
+
+watch(
+  () => roomStore.initialCash,
+  (next) => {
+    initialCashDraft.value = next;
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
@@ -89,6 +123,28 @@ function handleModifyRole(): void {
         {{ roomStore.startButtonLabel }}
       </button>
     </footer>
+
+    <section v-if="roomStore.isHost && roomStore.roomStatus === 'waiting'" class="cash-panel">
+      <div class="cash-head">
+        <span>初始金钱</span>
+        <strong>{{ initialCashDraft.toLocaleString() }}</strong>
+      </div>
+      <input
+        class="cash-slider"
+        type="range"
+        min="15000"
+        max="100000"
+        step="1000"
+        :value="initialCashDraft"
+        :disabled="roomStore.actionPending"
+        @input="handleInitialCashInput"
+        @change="handleInitialCashChange"
+      />
+      <div class="cash-scale">
+        <span>15,000</span>
+        <span>100,000</span>
+      </div>
+    </section>
 
     <div class="tips">
       <p v-if="roomStore.selfRole === 'spectator'" class="spectator-tip">当前为观战模式，无法掷骰或购买。</p>
@@ -184,6 +240,32 @@ h2 {
 .action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.cash-panel {
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(14, 116, 144, 0.25);
+  background: rgba(236, 254, 255, 0.68);
+  padding: 10px 12px;
+}
+.cash-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #0f172a;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.cash-slider {
+  width: 100%;
+}
+.cash-scale {
+  margin-top: 4px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #155e75;
 }
 
 .tips {

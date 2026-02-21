@@ -1,6 +1,17 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
-import type { DiceRolledPayload, GameLandingResolvedPayload, GameStaticConfigPayload, RoomState, SelfRole } from "@rich/shared";
+import type {
+  CreateTradeOfferPayload,
+  DiceRolledPayload,
+  GameActionRequiredPayload,
+  GameItemAnnouncementPayload,
+  GameStaticConfigPayload,
+  ItemId,
+  RoomState,
+  SelfRole,
+  TradeOfferEventPayload,
+  TradeResultEventPayload
+} from "@rich/shared";
 import { createSocketClient, type ConnectionStatus } from "../socket";
 import { getCharacterVisual } from "../game/characters/characters";
 import { BOARD_TILES, type BoardTileConfig } from "../game/board/boardConfig";
@@ -34,15 +45,17 @@ function getOrCreatePlayerToken(): string {
 
 function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTileConfig[] {
   return payload.tiles.map((tile, index) => {
+    const localTile = BOARD_TILES[index];
     if (tile.kind === "special") {
       return {
         id: tile.tileId,
         type: "special",
         nameZh: tile.name,
+        mapX: localTile?.mapX ?? 50,
+        mapY: localTile?.mapY ?? 50,
         icon: "✨"
       };
     }
-    const localTile = BOARD_TILES[index];
     const localProperty = localTile && localTile.type === "property" ? localTile : null;
     if (!localProperty) {
       console.error("[TILE_BAD_ZHOU]", { index, tileId: tile.tileId, name: tile.name });
@@ -51,19 +64,23 @@ function mapStaticConfigToBoardTiles(payload: GameStaticConfigPayload): BoardTil
       id: tile.tileId,
       type: "property",
       nameZh: tile.name,
+      mapX: localProperty?.mapX ?? localTile?.mapX ?? 50,
+      mapY: localProperty?.mapY ?? localTile?.mapY ?? 50,
       zhouKey: localProperty?.zhouKey ?? "豫",
       zhouName: localProperty?.zhouName ?? "豫州",
       tagIcon: localProperty?.tagIcon ?? "豫",
       setBonusRentMul: 1.2,
       price: tile.price,
       toll: tile.rent,
-      buildCost: Math.max(120, Math.floor(tile.price * 0.7)),
+      buildCost: localProperty?.buildCost ?? Math.max(120, Math.floor(tile.price * 0.55)),
+      rentByLevel: localProperty?.rentByLevel ?? [tile.rent, Math.round(tile.rent * 1.6), Math.round(tile.rent * 2.3), Math.round(tile.rent * 3.2)],
       level: 0
     };
   });
 }
 
-const FALLBACK_TILES_40_LOCAL: BoardTileConfig[] = BOARD_TILES.length === 40 ? BOARD_TILES : FALLBACK_TILES_40;
+const EXPECTED_TILE_COUNT = BOARD_TILES.length;
+const FALLBACK_TILES_40_LOCAL: BoardTileConfig[] = BOARD_TILES.length > 0 ? BOARD_TILES : FALLBACK_TILES_40;
 
 export const useRoomStore = defineStore("room_ui", () => {
   const socketClient = createSocketClient();
@@ -83,8 +100,11 @@ export const useRoomStore = defineStore("room_ui", () => {
   const lastJoinErrorCode = ref("");
   const diceRolledEvent = ref<{ seq: number; payload: DiceRolledPayload } | null>(null);
   const gameSystemEvent = ref<{ seq: number; text: string } | null>(null);
-  const landingQueue = ref<GameLandingResolvedPayload[]>([]);
+  const landingQueue = ref<GameActionRequiredPayload[]>([]);
   const systemMessages = ref<Array<{ id: number; text: string }>>([]);
+  const incomingTradeOffer = ref<TradeOfferEventPayload | null>(null);
+  const lastTradeResult = ref<TradeResultEventPayload | null>(null);
+  const itemAnnouncement = ref<GameItemAnnouncementPayload | null>(null);
   let diceSeq = 0;
   let systemSeq = 0;
   let previousPlayers = new Map<string, { status: string; selectedCharacterId: string | null }>();
@@ -113,6 +133,9 @@ export const useRoomStore = defineStore("room_ui", () => {
     });
     previousPlayers = nextPlayers;
     roomState.value = state;
+    if (!state.pendingAction && landingQueue.value.length > 0) {
+      landingQueue.value = [];
+    }
   });
   socketClient.subscribeStaticConfig((payload) => {
     staticConfig.value = payload;
@@ -135,23 +158,62 @@ export const useRoomStore = defineStore("room_ui", () => {
   socketClient.subscribeSystemEvent((payload) => {
     diceSeq += 1;
     gameSystemEvent.value = { seq: diceSeq, text: payload.text };
+  });
+  socketClient.subscribeGameEvent((payload) => {
+    diceSeq += 1;
+    gameSystemEvent.value = { seq: diceSeq, text: payload.text };
     pushSystemMessage(payload.text);
   });
-  socketClient.subscribeLandingResolved((payload) => {
+  socketClient.subscribeActionRequired((payload) => {
+    if (payload.targetPlayerId !== playerId.value) {
+      return;
+    }
+    if (payload.expiresAt <= Date.now()) {
+      return;
+    }
     landingQueue.value.push(payload);
     if (landingQueue.value.length > 8) {
       landingQueue.value = landingQueue.value.slice(-8);
     }
   });
+  socketClient.subscribeTradeOffer((payload) => {
+    if (payload.toPlayerId === playerId.value) {
+      incomingTradeOffer.value = payload;
+    }
+  });
+  socketClient.subscribeTradeResult((payload) => {
+    lastTradeResult.value = payload;
+    pushSystemMessage(payload.text);
+    if (incomingTradeOffer.value?.tradeId === payload.tradeId) {
+      incomingTradeOffer.value = null;
+    }
+  });
+  socketClient.subscribeItemAnnouncement((payload) => {
+    itemAnnouncement.value = payload;
+  });
 
   const roomId = computed(() => roomState.value?.roomId ?? "");
-  const currentLanding = computed(() => landingQueue.value[0] ?? null);
+  const initialCash = computed(() => roomState.value?.initialCash ?? 15_000);
+  const currentLanding = computed(() => landingQueue.value[0]?.payload ?? null);
+  const currentActionMeta = computed(() => {
+    const top = landingQueue.value[0];
+    if (!top) {
+      return null;
+    }
+    return {
+      actionId: top.actionId,
+      actionType: top.actionType,
+      expiresAt: top.expiresAt,
+      turnSeq: top.turnSeq
+    };
+  });
   const inRoom = computed(() => Boolean(roomState.value));
   const roomStatus = computed(() => roomState.value?.status ?? "waiting");
   const maxPlayers = 6;
   const players = computed(() => roomState.value?.players ?? []);
+  const board = computed(() => roomState.value?.board ?? []);
   const tilesToRender = computed<BoardTileConfig[]>(() => {
-    const mapped = staticConfig.value?.tiles?.length === 40 ? mapStaticConfigToBoardTiles(staticConfig.value) : null;
+    const mapped = staticConfig.value?.tiles?.length === EXPECTED_TILE_COUNT ? mapStaticConfigToBoardTiles(staticConfig.value) : null;
     const usingFallback = !mapped;
     const tiles = mapped ?? FALLBACK_TILES_40_LOCAL;
     setTilesDebug({
@@ -162,6 +224,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     return tiles;
   });
   const selfPlayer = computed(() => players.value.find((item) => item.playerId === playerId.value) ?? null);
+  const selfItems = computed(() => selfPlayer.value?.items ?? []);
   const selfPlayerId = computed(() => playerId.value);
   const selectedCharacterId = computed(() => selfPlayer.value?.selectedCharacterId ?? null);
   const connectedPlayersCount = computed(() => players.value.filter((item) => item.connected).length);
@@ -263,6 +326,12 @@ export const useRoomStore = defineStore("room_ui", () => {
       roomState.value?.phase === "can_buy" &&
       roomState.value.currentTurnPlayerId === playerId.value
   );
+  const myPropertyIndexes = computed(() =>
+    board.value.filter((tile) => tile.ownerPlayerId === playerId.value).map((tile) => tile.index)
+  );
+  function getPlayerPropertyIndexes(targetPlayerId: string): number[] {
+    return board.value.filter((tile) => tile.ownerPlayerId === targetPlayerId).map((tile) => tile.index);
+  }
 
   function openJoinModal(): void {
     localError.value = "";
@@ -416,6 +485,22 @@ export const useRoomStore = defineStore("room_ui", () => {
     return true;
   }
 
+  async function setInitialCash(amount: number): Promise<boolean> {
+    if (!roomId.value) {
+      localError.value = "当前不在房间内";
+      return false;
+    }
+    actionPending.value = true;
+    const result = await socketClient.setInitialCash(roomId.value, amount);
+    actionPending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
+    localError.value = "";
+    return true;
+  }
+
   function closeCharacterModalIfSelected(): void {
     if (selectedCharacterId.value) {
       showCharacterModal.value = false;
@@ -449,6 +534,9 @@ export const useRoomStore = defineStore("room_ui", () => {
     tradePending.value = false;
     gameSystemEvent.value = null;
     systemMessages.value = [];
+    incomingTradeOffer.value = null;
+    lastTradeResult.value = null;
+    itemAnnouncement.value = null;
     landingQueue.value = [];
     previousPlayers = new Map();
   }
@@ -458,6 +546,36 @@ export const useRoomStore = defineStore("room_ui", () => {
       return;
     }
     landingQueue.value.shift();
+  }
+
+  async function decideCurrentAction(confirm: boolean): Promise<boolean> {
+    if (!roomId.value || !currentActionMeta.value) {
+      return false;
+    }
+    const meta = currentActionMeta.value;
+    const playerToken = getOrCreatePlayerToken();
+    const decision =
+      meta.actionType === "BUY"
+        ? (confirm ? "BUY_CONFIRM" : "BUY_SKIP")
+        : meta.actionType === "UPGRADE"
+          ? (confirm ? "UPGRADE_CONFIRM" : "UPGRADE_SKIP")
+          : (confirm ? "SHOP_CONFIRM" : "SHOP_SKIP");
+    tradePending.value = true;
+    const result = await socketClient.actionDecision({
+      roomId: roomId.value,
+      actionId: meta.actionId,
+      turnSeq: meta.turnSeq,
+      playerToken,
+      decision
+    });
+    tradePending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
+    shiftLanding();
+    localError.value = "";
+    return true;
   }
 
   async function rollDice(): Promise<boolean> {
@@ -508,6 +626,76 @@ export const useRoomStore = defineStore("room_ui", () => {
     return true;
   }
 
+  async function useItem(payload: { itemId: ItemId; targetPlayerId?: string; targetTileIndex?: number; desiredDice?: number }): Promise<boolean> {
+    if (!roomId.value) {
+      localError.value = "当前不在房间内";
+      return false;
+    }
+    actionPending.value = true;
+    const result = await socketClient.useItem({
+      roomId: roomId.value,
+      itemId: payload.itemId,
+      targetPlayerId: payload.targetPlayerId,
+      targetTileIndex: payload.targetTileIndex,
+      desiredDice: payload.desiredDice
+    });
+    actionPending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
+    localError.value = "";
+    return true;
+  }
+
+  async function createTradeOffer(payload: Omit<CreateTradeOfferPayload, "roomId">): Promise<boolean> {
+    if (!roomId.value) {
+      localError.value = "当前不在房间内";
+      return false;
+    }
+    actionPending.value = true;
+    const result = await socketClient.createTradeOffer({
+      roomId: roomId.value,
+      ...payload
+    });
+    actionPending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
+    localError.value = "";
+    return true;
+  }
+
+  async function respondTradeOffer(tradeId: string, accept: boolean): Promise<boolean> {
+    if (!roomId.value) {
+      localError.value = "当前不在房间内";
+      return false;
+    }
+    actionPending.value = true;
+    const result = await socketClient.respondTradeOffer({
+      roomId: roomId.value,
+      tradeId,
+      accept
+    });
+    actionPending.value = false;
+    if (!result.ok) {
+      localError.value = result.message;
+      return false;
+    }
+    if (incomingTradeOffer.value?.tradeId === tradeId) {
+      incomingTradeOffer.value = null;
+    }
+    localError.value = "";
+    return true;
+  }
+  function clearIncomingTradeOffer(): void {
+    incomingTradeOffer.value = null;
+  }
+  function clearItemAnnouncement(): void {
+    itemAnnouncement.value = null;
+  }
+
   const storedSession = socketClient.getSession();
   if (storedSession) {
     playerId.value = storedSession.playerId;
@@ -537,13 +725,21 @@ export const useRoomStore = defineStore("room_ui", () => {
     nickname,
     playerId,
     players,
+    board,
+    myPropertyIndexes,
+    getPlayerPropertyIndexes,
     tilesToRender,
     rollingPending,
     diceRolledEvent,
     gameSystemEvent,
+    incomingTradeOffer,
+    lastTradeResult,
+    itemAnnouncement,
     currentLanding,
+    currentActionMeta,
     roomId,
     roomState,
+    initialCash,
     staticConfig,
     selfRole,
     systemMessages,
@@ -551,6 +747,7 @@ export const useRoomStore = defineStore("room_ui", () => {
     maxPlayers,
     connectedPlayersCount,
     selfPlayer,
+    selfItems,
     selfPlayerId,
     selectedCharacterId,
     showCharacterModal,
@@ -569,8 +766,15 @@ export const useRoomStore = defineStore("room_ui", () => {
     rollDice,
     selectCharacter,
     skipBuy,
+    useItem,
+    createTradeOffer,
+    respondTradeOffer,
+    clearIncomingTradeOffer,
+    clearItemAnnouncement,
     shiftLanding,
+    decideCurrentAction,
     startGame,
+    setInitialCash,
     toggleReady,
     takenCharacterIdsByOthers,
     startButtonLabel,

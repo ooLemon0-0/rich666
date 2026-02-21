@@ -42,12 +42,26 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
   const marginBase = input.margin ?? 42;
   const gapBase = input.gap ?? 6;
 
-  const boardWIdeal = marginBase * 2 + cornerBase * 2 + edgeBase * 8;
-  const boardHIdeal = marginBase * 2 + cornerBase * 2 + edgeBase * 8;
+  const topSlots = Math.max(2, corners[1] - corners[0] + 1);
+  const rightSlots = Math.max(2, corners[2] - corners[1] + 1);
+  const bottomSlots = Math.max(2, corners[3] - corners[2] + 1);
+  const leftSlots = Math.max(2, corners[0] + tileCount - corners[3] + 1);
+  const maxHorizontalSlots = Math.max(topSlots, bottomSlots);
+  const maxVerticalSlots = Math.max(rightSlots, leftSlots);
+  const boardWIdeal =
+    marginBase * 2 +
+    cornerBase * 2 +
+    Math.max(0, maxHorizontalSlots - 2) * edgeBase +
+    Math.max(0, maxHorizontalSlots - 1) * gapBase;
+  const boardHIdeal =
+    marginBase * 2 +
+    cornerBase * 2 +
+    Math.max(0, maxVerticalSlots - 2) * edgeBase +
+    Math.max(0, maxVerticalSlots - 1) * gapBase;
   const boardScale = Math.min(1, (input.stageWidth / boardWIdeal) * 0.98, (input.stageHeight / boardHIdeal) * 0.98);
 
   const corner = cornerBase * boardScale;
-  const edge = edgeBase * boardScale;
+  const edgeRaw = edgeBase * boardScale;
   const margin = marginBase * boardScale;
   const gap = gapBase * boardScale;
 
@@ -55,11 +69,10 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
   const top = margin + corner / 2;
   const right = input.stageWidth - margin - corner / 2;
   const bottom = input.stageHeight - margin - corner / 2;
-
-  const innerLeft = left + corner / 2;
-  const innerRight = right - corner / 2;
-  const innerTop = top + corner / 2;
-  const innerBottom = bottom - corner / 2;
+  const horizontalStep = Math.max(1, (right - left) / Math.max(1, maxHorizontalSlots - 1));
+  const verticalStep = Math.max(1, (bottom - top) / Math.max(1, maxVerticalSlots - 1));
+  const edge = Math.max(26, Math.min(edgeRaw, Math.min(horizontalStep, verticalStep) - gap));
+  const cornerSize = Math.max(edge, Math.min(corner, edge * 1.2));
   const points: AbsPoint[] = [];
   const sideDefs = [
     {
@@ -67,7 +80,7 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
       end: corners[1],
       angle: 0,
       side: "top" as const,
-      xAt: (t: number) => innerLeft + t * (innerRight - innerLeft),
+      xAt: (t: number) => left + t * (right - left),
       yAt: () => top
     },
     {
@@ -76,14 +89,14 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
       angle: 90,
       side: "right" as const,
       xAt: () => right,
-      yAt: (t: number) => innerTop + t * (innerBottom - innerTop)
+      yAt: (t: number) => top + t * (bottom - top)
     },
     {
       start: corners[2],
       end: corners[3],
       angle: 180,
       side: "bottom" as const,
-      xAt: (t: number) => innerRight - t * (innerRight - innerLeft),
+      xAt: (t: number) => right - t * (right - left),
       yAt: () => bottom
     },
     {
@@ -92,7 +105,7 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
       angle: 270,
       side: "left" as const,
       xAt: () => left,
-      yAt: (t: number) => innerBottom - t * (innerBottom - innerTop)
+      yAt: (t: number) => bottom - t * (bottom - top)
     }
   ];
   const cornerPointMap: Record<number, { x: number; y: number }> = {
@@ -112,7 +125,7 @@ export function layoutRectBoardFit(input: RectBoardFitInput): RectBoardFitResult
     const sideSlot = normalized - sideDef.start;
     const t = sideLen <= 0 ? 0 : sideSlot / sideLen;
     const isCorner = corners.includes(index);
-    const size = Math.max(26, (isCorner ? corner : edge) - gap);
+    const size = Math.max(26, (isCorner ? cornerSize : edge) - gap);
     const cornerPoint = cornerPointMap[index];
     const x = isCorner && cornerPoint ? cornerPoint.x : sideDef.xAt(t);
     const y = isCorner && cornerPoint ? cornerPoint.y : sideDef.yAt(t);

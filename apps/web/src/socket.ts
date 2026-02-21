@@ -1,8 +1,14 @@
 import { io, type Socket } from "socket.io-client";
 import type {
+  ActionDecisionPayload,
   BuyRequestPayload,
+  CreateTradeOfferPayload,
+  UseItemPayload,
   ClientToServerEvents,
   DiceRolledPayload,
+  GameItemAnnouncementPayload,
+  GameActionRequiredPayload,
+  GameEventPayload,
   GameLandingResolvedPayload,
   GameStaticConfigPayload,
   GameSystemEventPayload,
@@ -13,6 +19,11 @@ import type {
   RoomState,
   SocketErrorPayload,
   SkipBuyPayload,
+  TradeOfferActionResult,
+  TradeOfferEventPayload,
+  TradeResultEventPayload,
+  RespondTradeOfferPayload,
+  UseItemResult,
   TradeActionResult,
   ServerToClientEvents
 } from "@rich/shared";
@@ -48,10 +59,15 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 type RoomStateHandler = (state: RoomState) => void;
 type DiceRolledHandler = (payload: DiceRolledPayload) => void;
 type LandingResolvedHandler = (payload: GameLandingResolvedPayload) => void;
+type ActionRequiredHandler = (payload: GameActionRequiredPayload) => void;
+type GameEventHandler = (payload: GameEventPayload) => void;
 type SystemEventHandler = (payload: GameSystemEventPayload) => void;
 type StaticConfigHandler = (payload: GameStaticConfigPayload) => void;
 type ErrorHandler = (error: SocketErrorPayload) => void;
 type ConnectionHandler = (status: ConnectionStatus) => void;
+type TradeOfferHandler = (payload: TradeOfferEventPayload) => void;
+type TradeResultHandler = (payload: TradeResultEventPayload) => void;
+type ItemAnnouncementHandler = (payload: GameItemAnnouncementPayload) => void;
 type SocketConnectError = Error & { description?: unknown; context?: unknown };
 
 interface SessionSnapshot {
@@ -67,20 +83,30 @@ interface SocketClient {
   rollRequest: (roomId: string) => Promise<RollRequestResult>;
   buyRequest: (roomId: string) => Promise<TradeActionResult>;
   skipBuy: (roomId: string) => Promise<TradeActionResult>;
+  actionDecision: (payload: ActionDecisionPayload) => Promise<TradeActionResult>;
   selectCharacter: (roomId: string, characterId: string) => Promise<ClientRoomActionResult>;
   toggleReady: (roomId: string) => Promise<RoomActionResult>;
+  setInitialCash: (roomId: string, amount: number) => Promise<RoomActionResult>;
   startGame: (roomId: string) => Promise<RoomActionResult>;
   leaveRoom: (roomId: string, playerToken: string) => Promise<RoomActionResult>;
+  createTradeOffer: (payload: CreateTradeOfferPayload) => Promise<TradeOfferActionResult>;
+  respondTradeOffer: (payload: RespondTradeOfferPayload) => Promise<TradeOfferActionResult>;
+  useItem: (payload: UseItemPayload) => Promise<UseItemResult>;
   setSession: (session: SessionSnapshot) => void;
   clearSession: () => void;
   getSession: () => SessionSnapshot | null;
   subscribeRoomState: (handler: RoomStateHandler) => () => void;
   subscribeDiceRolled: (handler: DiceRolledHandler) => () => void;
   subscribeLandingResolved: (handler: LandingResolvedHandler) => () => void;
+  subscribeActionRequired: (handler: ActionRequiredHandler) => () => void;
+  subscribeGameEvent: (handler: GameEventHandler) => () => void;
   subscribeSystemEvent: (handler: SystemEventHandler) => () => void;
   subscribeStaticConfig: (handler: StaticConfigHandler) => () => void;
   subscribeError: (handler: ErrorHandler) => () => void;
   subscribeConnection: (handler: ConnectionHandler) => () => void;
+  subscribeTradeOffer: (handler: TradeOfferHandler) => () => void;
+  subscribeTradeResult: (handler: TradeResultHandler) => () => void;
+  subscribeItemAnnouncement: (handler: ItemAnnouncementHandler) => () => void;
   getStatus: () => ConnectionStatus;
 }
 
@@ -99,10 +125,15 @@ let reconnectingFromSession = false;
 const roomStateListeners = new Set<RoomStateHandler>();
 const diceRolledListeners = new Set<DiceRolledHandler>();
 const landingResolvedListeners = new Set<LandingResolvedHandler>();
+const actionRequiredListeners = new Set<ActionRequiredHandler>();
+const gameEventListeners = new Set<GameEventHandler>();
 const systemEventListeners = new Set<SystemEventHandler>();
 const staticConfigListeners = new Set<StaticConfigHandler>();
 const errorListeners = new Set<ErrorHandler>();
 const connectionListeners = new Set<ConnectionHandler>();
+const tradeOfferListeners = new Set<TradeOfferHandler>();
+const tradeResultListeners = new Set<TradeResultHandler>();
+const itemAnnouncementListeners = new Set<ItemAnnouncementHandler>();
 
 function emitConnectionStatus(next: ConnectionStatus): void {
   status = next;
@@ -215,8 +246,23 @@ function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   socket.on("game:landingResolved", (payload) => {
     landingResolvedListeners.forEach((handler) => handler(payload));
   });
+  socket.on("game:action_required", (payload) => {
+    actionRequiredListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("game:event", (payload) => {
+    gameEventListeners.forEach((handler) => handler(payload));
+  });
   socket.on("game:staticConfig", (payload) => {
     staticConfigListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("room:trade_offer", (payload) => {
+    tradeOfferListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("room:trade_result", (payload) => {
+    tradeResultListeners.forEach((handler) => handler(payload));
+  });
+  socket.on("game:itemAnnouncement", (payload) => {
+    itemAnnouncementListeners.forEach((handler) => handler(payload));
   });
 
   socketInstance = socket;
@@ -302,6 +348,12 @@ export function createSocketClient(): SocketClient {
         socket.emit("skip_buy", payload, ack);
       });
     },
+    actionDecision(payload) {
+      const socket = getSocket();
+      return withAck<TradeActionResult>((ack) => {
+        socket.emit("game_action_decision", payload, ack);
+      });
+    },
     selectCharacter(roomId, characterId) {
       const socket = getSocket();
       if (!socket.connected) {
@@ -329,6 +381,12 @@ export function createSocketClient(): SocketClient {
         socket.emit("room_toggle_ready", { roomId }, ack);
       });
     },
+    setInitialCash(roomId, amount) {
+      const socket = getSocket();
+      return withAck<RoomActionResult>((ack) => {
+        socket.emit("room_set_initial_cash", { roomId, amount }, ack);
+      });
+    },
     startGame(roomId) {
       const socket = getSocket();
       return withAck<RoomActionResult>((ack) => {
@@ -339,6 +397,24 @@ export function createSocketClient(): SocketClient {
       const socket = getSocket();
       return withAck<RoomActionResult>((ack) => {
         socket.emit("room_leave", { roomId, playerToken }, ack);
+      });
+    },
+    createTradeOffer(payload) {
+      const socket = getSocket();
+      return withAck<TradeOfferActionResult>((ack) => {
+        socket.emit("room_create_trade_offer", payload, ack);
+      });
+    },
+    respondTradeOffer(payload) {
+      const socket = getSocket();
+      return withAck<TradeOfferActionResult>((ack) => {
+        socket.emit("room_respond_trade_offer", payload, ack);
+      });
+    },
+    useItem(payload) {
+      const socket = getSocket();
+      return withAck<UseItemResult>((ack) => {
+        socket.emit("room_use_item", payload, ack);
       });
     },
     subscribeRoomState(handler) {
@@ -371,6 +447,18 @@ export function createSocketClient(): SocketClient {
         landingResolvedListeners.delete(handler);
       };
     },
+    subscribeActionRequired(handler) {
+      actionRequiredListeners.add(handler);
+      return () => {
+        actionRequiredListeners.delete(handler);
+      };
+    },
+    subscribeGameEvent(handler) {
+      gameEventListeners.add(handler);
+      return () => {
+        gameEventListeners.delete(handler);
+      };
+    },
     subscribeStaticConfig(handler) {
       staticConfigListeners.add(handler);
       return () => {
@@ -391,6 +479,24 @@ export function createSocketClient(): SocketClient {
       handler(status);
       return () => {
         connectionListeners.delete(handler);
+      };
+    },
+    subscribeTradeOffer(handler) {
+      tradeOfferListeners.add(handler);
+      return () => {
+        tradeOfferListeners.delete(handler);
+      };
+    },
+    subscribeTradeResult(handler) {
+      tradeResultListeners.add(handler);
+      return () => {
+        tradeResultListeners.delete(handler);
+      };
+    },
+    subscribeItemAnnouncement(handler) {
+      itemAnnouncementListeners.add(handler);
+      return () => {
+        itemAnnouncementListeners.delete(handler);
       };
     },
     getStatus() {
